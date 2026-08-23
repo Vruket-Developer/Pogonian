@@ -153,16 +153,46 @@ func RunAdd(args []string) error {
 	return nil
 }
 
-// RunListModules displays the catalog of all available marketplace components.
+// RunListModules dynamically discovers installed project components, custom modules, and marketplace catalog.
 func RunListModules(args []string) error {
+	projectDir := "."
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			projectDir = arg
+		}
+	}
+
+	absDir, _ := filepath.Abs(projectDir)
+
 	fmt.Println()
-	fmt.Printf("🏪 \x1b[1;36mPogonian Component & Module Marketplace\x1b[0m\n")
+	fmt.Printf("🏪 \x1b[1;36mPogonian Component & Module Registry\x1b[0m\n")
+	fmt.Printf("   Project Directory: %s\n", absDir)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("  Add any component/module directly to your project without npm dependencies:")
+	fmt.Println("  Install any component/module without npm dependencies:")
 	fmt.Println("    \x1b[1;33mpogn add module <name>\x1b[0m  or  \x1b[1;33mpogn add component <name>\x1b[0m")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
+	// 1. Discover locally installed components in app/components/
+	installedComponents := make(map[string]bool)
+	var customComponents []string
+
+	compDir := filepath.Join(absDir, "app", "components")
+	if entries, err := os.ReadDir(compDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".html") {
+				cName := strings.TrimSuffix(strings.ToLower(entry.Name()), ".html")
+				installedComponents[cName] = true
+				if _, inCatalog := modules.Catalog[cName]; !inCatalog {
+					customComponents = append(customComponents, entry.Name())
+				}
+			}
+		}
+	}
+
+	// 2. Marketplace Catalog Modules
+	fmt.Println("  \x1b[1mMarketplace Catalog:\x1b[0m")
+	fmt.Println()
 	mods := modules.ListModules()
 	for _, m := range mods {
 		typeColor := "\x1b[1;34m" // UI
@@ -170,12 +200,29 @@ func RunListModules(args []string) error {
 			typeColor = "\x1b[1;35m" // Full stack
 		}
 
-		fmt.Printf("  • %-12s %s[%s]\x1b[0m\n", "\x1b[1;36m"+m.Name+"\x1b[0m", typeColor, m.Category)
+		statusBadge := "\x1b[1;30m[Available]\x1b[0m"
+		if installedComponents[m.Name] {
+			statusBadge = "\x1b[1;32m✓ [Installed]\x1b[0m"
+		}
+
+		fmt.Printf("  • %-12s %s[%s]\x1b[0m %s\n", "\x1b[1;36m"+m.Name+"\x1b[0m", typeColor, m.Category, statusBadge)
 		fmt.Printf("    \x1b[1;30m↳ %s\x1b[0m\n", m.Description)
 		if m.UsageHint != "" {
 			fmt.Printf("    \x1b[1;32m↳ %s\x1b[0m\n", m.UsageHint)
 		}
 		fmt.Println()
+	}
+
+	// 3. User Custom Components
+	if len(customComponents) > 0 {
+		fmt.Println("  \x1b[1mProject Custom Components (app/components/):\x1b[0m")
+		fmt.Println()
+		for _, c := range customComponents {
+			base := strings.TrimSuffix(c, ".html")
+			fmt.Printf("  • \x1b[1;36m%-12s\x1b[0m \x1b[1;32m[Custom UI Component]\x1b[0m\n", base)
+			fmt.Printf("    \x1b[1;30m↳ Template: app/components/%s\x1b[0m\n", c)
+			fmt.Printf("    \x1b[1;32m↳ Usage: {{ template \"%s\" . }}\x1b[0m\n\n", base)
+		}
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"pogonian/internal/database"
 )
 
-// RunClean executes `pogn clean`.
+// RunClean executes `pogn clean` to remove build artifacts, caches, and test runs dynamically.
 func RunClean(args []string) error {
 	projectDir := "."
 	for _, arg := range args {
@@ -24,27 +25,74 @@ func RunClean(args []string) error {
 		return err
 	}
 
-	dirsToClean := []string{
-		filepath.Join(absDir, "dist"),
-		filepath.Join(absDir, ".pogonian", "build"),
-		filepath.Join(absDir, ".pogonian", "cache"),
-		filepath.Join(absDir, ".test-work"),
+	// Dynamically scan for directories and temporary files to clean
+	var itemsRemoved []string
+
+	knownCleanDirs := []string{
+		"dist",
+		"bin",
+		filepath.Join(".pogonian", "build"),
+		filepath.Join(".pogonian", "cache"),
+		".test-work",
+		".pogonian_sandbox",
+		".tmp",
 	}
 
-	fmt.Println()
-	fmt.Printf("🧹 \x1b[1mCleaning Pogonian Project:\x1b[0m %s\n", absDir)
-	for _, dir := range dirsToClean {
-		if err := os.RemoveAll(dir); err == nil {
-			rel, _ := filepath.Rel(absDir, dir)
-			fmt.Printf("  ✓ Removed \x1b[1;36m%s\x1b[0m\n", rel)
+	for _, rel := range knownCleanDirs {
+		target := filepath.Join(absDir, rel)
+		if info, err := os.Stat(target); err == nil {
+			if err := os.RemoveAll(target); err == nil {
+				if info.IsDir() {
+					itemsRemoved = append(itemsRemoved, rel+"/")
+				} else {
+					itemsRemoved = append(itemsRemoved, rel)
+				}
+			}
 		}
 	}
 
-	fmt.Println("✨ Project workspace is clean!")
+	// Dynamically find and remove any compiled binaries in root (.exe, temporary executables, coverage.out)
+	_ = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".git" || name == "node_modules" || name == "templates" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		name := d.Name()
+		if name == "coverage.out" || name == "profile.pprof" || strings.HasSuffix(name, ".test") {
+			_ = os.Remove(path)
+			rel, _ := filepath.Rel(absDir, path)
+			itemsRemoved = append(itemsRemoved, rel)
+		}
+		return nil
+	})
+
+	fmt.Println()
+	fmt.Printf("🧹 \x1b[1;36mCleaning Pogonian Project:\x1b[0m %s\n", absDir)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	if len(itemsRemoved) == 0 {
+		fmt.Println("  ✨ Workspace is already clean! No build artifacts or temporary files found.")
+	} else {
+		for _, item := range itemsRemoved {
+			fmt.Printf("  \x1b[1;32m✓ Removed:\x1b[0m \x1b[1;36m%s\x1b[0m\n", item)
+		}
+		fmt.Println()
+		fmt.Printf("✨ Cleaned %d build artifacts & caches.\n", len(itemsRemoved))
+	}
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
 	return nil
 }
 
-// RunReset executes `pogn reset`.
+// RunReset executes `pogn reset` to clean artifacts and reset the database to a fresh state.
 func RunReset(args []string) error {
 	projectDir := "."
 	for _, arg := range args {
@@ -61,7 +109,7 @@ func RunReset(args []string) error {
 	// 1. Run Clean
 	_ = RunClean(args)
 
-	// 2. Reset development database
+	// 2. Reset development database dynamically
 	cfg, err := config.Load(absDir)
 	if err == nil && cfg.Database.Driver == "sqlite" && cfg.Database.Path != "" {
 		dbPath := cfg.Database.Path
@@ -76,10 +124,11 @@ func RunReset(args []string) error {
 		// Recreate fresh SQLite database
 		if db, err := database.Open(dbPath); err == nil {
 			_ = db.Close()
-			fmt.Printf("  ✓ Reset development database: \x1b[1;32m%s\x1b[0m\n", cfg.Database.Path)
+			fmt.Printf("  \x1b[1;32m✓ Re-initialized database:\x1b[0m \x1b[1;36m%s\x1b[0m\n", cfg.Database.Path)
 		}
 	}
 
 	fmt.Println("✨ \x1b[1;32mProject environment reset to fresh state!\x1b[0m")
+	fmt.Println()
 	return nil
 }
