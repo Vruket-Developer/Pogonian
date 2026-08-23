@@ -50,11 +50,10 @@ func Run(args []string) error {
 		return RunCheck(cmdArgs)
 
 	case "inspect":
-		return RunCheck(cmdArgs)
+		return RunInspect(cmdArgs)
 
 	case "analyze":
-		fmt.Println("📊 Analyzing project dependency graph (Coming in Step 17)...")
-		return nil
+		return RunAnalyze(cmdArgs)
 
 	case "import":
 		fmt.Println("📥 Importing legacy framework application (Coming in Step 22)...")

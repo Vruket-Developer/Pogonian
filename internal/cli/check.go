@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"pogonian/internal/architecture"
 	"pogonian/internal/config"
 	"pogonian/internal/router"
 )
@@ -77,6 +78,31 @@ func RunCheck(args []string) error {
 		passed = false
 	} else {
 		fmt.Printf("  \x1b[1;32m✓ Root Layout:\x1b[0m app/layout.html valid\n")
+	}
+
+	// 5. Backend Architecture & Layer Rules Check
+	analyzer, err := architecture.NewAnalyzer(absDir)
+	if err == nil {
+		appIR, graph, err := analyzer.Analyze()
+		if err == nil {
+			validator := architecture.NewValidator(false)
+			violations := validator.Validate(appIR, graph)
+			if len(violations) > 0 {
+				fmt.Println()
+				fmt.Printf("  \x1b[1;33m⚠ Architecture Diagnostics (%d):\x1b[0m\n", len(violations))
+				for _, v := range violations {
+					if v.Severity == "ERROR" {
+						fmt.Printf("    \x1b[1;31m❌ [%s] %s:\x1b[0m %s\n", v.Layer, v.Component, v.Message)
+						fmt.Printf("       \x1b[1;30m↳ Suggestion: %s\x1b[0m\n", v.Suggestion)
+						passed = false
+					} else {
+						fmt.Printf("    \x1b[1;33m⚠ [%s] %s:\x1b[0m %s\n", v.Layer, v.Component, v.Message)
+					}
+				}
+			} else {
+				fmt.Printf("  \x1b[1;32m✓ Architecture Layers:\x1b[0m 0 violations detected (Clean Flow)\n")
+			}
+		}
 	}
 
 	fmt.Println()
