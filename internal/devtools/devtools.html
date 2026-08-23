@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pogonian DevTools — Live Architecture & Telemetry</title>
+    <link rel="stylesheet" href="/globals.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        .devtools-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+        .devtools-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            background: var(--brand-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-top: 0.25rem;
+        }
+        .mermaid-container {
+            background: #0d1117;
+            padding: 1.5rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th, td {
+            padding: 0.75rem 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+        th {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body class="pogn-body">
+    <div class="container" style="max-width: 1200px; padding: 2rem 1.5rem;">
+        <header class="devtools-header">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <span class="logo-badge" style="width: 40px; height: 40px; font-size: 1.25rem;">P</span>
+                <div>
+                    <h1 style="font-size: 1.5rem; margin: 0;">Pogonian DevTools</h1>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">Live Architecture, Telemetry &amp; AI Context</p>
+                </div>
+            </div>
+            <div>
+                <a href="/" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.85rem;">&larr; Back to App</a>
+            </div>
+        </header>
+
+        <!-- Stats Overview -->
+        <div class="features-grid" style="grid-template-columns: repeat(4, 1fr); margin-top: 0; margin-bottom: 2rem;">
+            <div class="stat-card">
+                <span style="color: var(--text-muted); font-size: 0.8rem;">SERVER STATUS</span>
+                <div class="stat-value" style="color: #34d399; -webkit-text-fill-color: #34d399;">Active</div>
+            </div>
+            <div class="stat-card">
+                <span style="color: var(--text-muted); font-size: 0.8rem;">TOTAL REQUESTS</span>
+                <div class="stat-value">{{ .TotalRequests }}</div>
+            </div>
+            <div class="stat-card">
+                <span style="color: var(--text-muted); font-size: 0.8rem;">DISCOVERED ROUTES</span>
+                <div class="stat-value">{{ .RoutesCount }}</div>
+            </div>
+            <div class="stat-card">
+                <span style="color: var(--text-muted); font-size: 0.8rem;">AI TOKEN SAVINGS</span>
+                <div class="stat-value" style="color: #38bdf8; -webkit-text-fill-color: #38bdf8;">~83%</div>
+            </div>
+        </div>
+
+        <!-- Architecture Flowchart -->
+        <div class="card" style="margin-bottom: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3>Live Architecture Dependency Graph</h3>
+                <span class="badge-pill" style="margin: 0;">Zero Layer Violations</span>
+            </div>
+            <div class="mermaid-container">
+                <div class="mermaid">
+{{ .MermaidGraph }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Request Telemetry & AI Context -->
+        <div class="devtools-grid">
+            <!-- Telemetry Log -->
+            <div class="card">
+                <h3>Recent Request Telemetry</h3>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Real-time TTFB and memory usage.</p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>METHOD</th>
+                            <th>PATH</th>
+                            <th>STATUS</th>
+                            <th>TTFB</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{ range .Metrics }}
+                        <tr>
+                            <td><code style="color:#38bdf8;">{{ .Method }}</code></td>
+                            <td>{{ .Path }}</td>
+                            <td><span style="color: #34d399; font-weight: 600;">{{ .Status }}</span></td>
+                            <td style="color: var(--text-secondary);">{{ .DurationStr }}</td>
+                        </tr>
+                        {{ else }}
+                        <tr>
+                            <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No requests recorded yet.</td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- AI Context & Spec -->
+            <div class="card">
+                <h3>Architecture Spec (.ai)</h3>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Compact semantic metadata for AI development.</p>
+                <pre style="background: #0d1117; padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-color); font-size: 0.85rem; color: #38bdf8; overflow-x: auto;">{{ .AISpecYAML }}</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+    </script>
+</body>
+</html>

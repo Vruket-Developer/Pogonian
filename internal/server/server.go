@@ -11,6 +11,7 @@ import (
 	"pogonian/internal/compiler"
 	"pogonian/internal/config"
 	"pogonian/internal/database"
+	"pogonian/internal/devtools"
 	"pogonian/internal/middleware"
 	"pogonian/internal/router"
 	"pogonian/runtime"
@@ -118,13 +119,22 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		duration := time.Since(start)
 		s.logRequest(r.Method, r.URL.Path, rec.statusCode, duration)
+		devtools.GlobalRecorder.Record(r.Method, r.URL.Path, rec.statusCode, duration)
 	}()
 
 	path := r.URL.Path
 
-	// 1. Serve embedded client runtime
+	// 1. Serve embedded client runtime & devtools
 	if path == "/_pogn/runtime.js" {
 		runtime.Handler().ServeHTTP(rec, r)
+		return
+	}
+	if path == "/__pogn/devtools" {
+		devtools.ServeDevTools(s.ProjectDir).ServeHTTP(rec, r)
+		return
+	}
+	if path == "/__pogn/devbar.js" {
+		devtools.ServeDevBar().ServeHTTP(rec, r)
 		return
 	}
 

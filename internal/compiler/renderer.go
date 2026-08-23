@@ -97,7 +97,9 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 
 	// 3. Ensure runtime script tag is included
 	if !strings.Contains(currentHTML, "/_pogn/runtime.js") && strings.Contains(currentHTML, "</body>") {
-		currentHTML = strings.Replace(currentHTML, "</body>", "<script src=\"/_pogn/runtime.js\" defer></script>\n</body>", 1)
+		currentHTML = strings.Replace(currentHTML, "</body>", "<script src=\"/_pogn/runtime.js\" defer></script>\n<script src=\"/__pogn/devbar.js\" defer></script>\n</body>", 1)
+	} else if strings.Contains(currentHTML, "</body>") && !strings.Contains(currentHTML, "/__pogn/devbar.js") {
+		currentHTML = strings.Replace(currentHTML, "</body>", "<script src=\"/__pogn/devbar.js\" defer></script>\n</body>", 1)
 	}
 
 	return []byte(currentHTML), nil
