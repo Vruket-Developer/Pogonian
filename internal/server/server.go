@@ -160,10 +160,40 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 					fmt.Fprintf(rec, "<h1>Action Error</h1><p>%v</p>", err)
 					return
 				}
-				// If action wrote response or redirected, we are done
 				if rec.statusCode != http.StatusOK {
 					return
 				}
+			} else if s.DB != nil {
+				// Fallback generic SQLite action handler for AI-generated modules
+				tableName := strings.Trim(route.Path, "/")
+				_ = r.ParseMultipartForm(32 << 20)
+				_ = r.ParseForm()
+
+				title := r.FormValue("title")
+				if title == "" {
+					title = r.FormValue("name")
+				}
+				content := r.FormValue("content")
+				if content == "" {
+					content = r.FormValue("description")
+				}
+
+				if title != "" {
+					// Ensure table exists
+					_, _ = s.DB.Exec(fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						title TEXT NOT NULL,
+						content TEXT,
+						created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+					)`, tableName))
+
+					_, _ = s.DB.Exec(
+						fmt.Sprintf("INSERT INTO %s (title, content, created_at) VALUES (?, ?, ?)", tableName),
+						title, content, time.Now().UTC().Format(time.RFC3339),
+					)
+				}
+				http.Redirect(rec, r, route.Path, http.StatusSeeOther)
+				return
 			}
 		}
 
@@ -178,6 +208,37 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data = loadedData
+		} else if s.DB != nil {
+			// Fallback generic SQLite data loader for AI-generated tables
+			tableName := strings.Trim(route.Path, "/")
+			type GenericItem struct {
+				ID      int64
+				Title   string
+				Content string
+			}
+			var items []*GenericItem
+			rows, err := s.DB.Query(fmt.Sprintf("SELECT id, title, content FROM %s ORDER BY id DESC", tableName))
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					item := &GenericItem{}
+					if err := rows.Scan(&item.ID, &item.Title, &item.Content); err == nil {
+						items = append(items, item)
+					}
+				}
+			}
+			if items == nil {
+				items = make([]*GenericItem, 0)
+			}
+			data = map[string]interface{}{
+				"Items": items,
+				"Total": len(items),
+			}
+		} else {
+			data = map[string]interface{}{
+				"Items": make([]interface{}, 0),
+				"Total": 0,
+			}
 		}
 
 		query := make(map[string]string)

@@ -259,7 +259,7 @@ func (h *Handler) HandlePostAction(w http.ResponseWriter, r *http.Request, param
                         </tr>
                     </thead>
                     <tbody>
-                        {{ if .Data.Items }}
+                        {{ if and .Data .Data.Items }}
                             {{ range .Data.Items }}
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.75rem 0.5rem; color: var(--text-muted);">#{{ .ID }}</td>
