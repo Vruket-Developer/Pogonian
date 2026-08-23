@@ -129,10 +129,14 @@ func TestServer_ComponentTagAutoExpansionAndMultiPath(t *testing.T) {
 
 	projectDir := app.AppPath()
 
-	// 1. Create a component with .Slot and .Class evaluations
-	rootModuleCompDir := filepath.Join(projectDir, "components", "module")
-	_ = os.MkdirAll(rootModuleCompDir, 0755)
-	_ = os.WriteFile(filepath.Join(rootModuleCompDir, "footer.html"), []byte(`<footer class="my-custom-footer {{ .Class }}"><div class="slot">{{ .Slot }}</div><p>&copy; {{ .CurrentYear }} Pogonian Framework</p></footer>`), 0644)
+	// 1. Create a component with {{ define "footer" }} in app/components/footer.html
+	appCompDir := filepath.Join(projectDir, "app", "components")
+	_ = os.MkdirAll(appCompDir, 0755)
+	_ = os.WriteFile(filepath.Join(appCompDir, "footer.html"), []byte(`{{ define "footer" }}
+<footer class="pogn-component-footer">
+    <div class="footer-brand">Pogonian Footer Content</div>
+</footer>
+{{ end }}`), 0644)
 
 	// 2. Put <footer /> tag into app/about/page.html
 	aboutPage := filepath.Join(projectDir, "app", "about", "page.html")
@@ -157,8 +161,8 @@ func TestServer_ComponentTagAutoExpansionAndMultiPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("Expected 200 OK, got %d. Body:\n%s", res.StatusCode, bodyStr)
 	}
-	if !strings.Contains(bodyStr, "my-custom-footer") {
-		t.Errorf("Expected <footer /> to expand to footer component content from components/module/footer.html, got:\n%s", bodyStr)
+	if !strings.Contains(bodyStr, "pogn-component-footer") || !strings.Contains(bodyStr, "Pogonian Footer Content") {
+		t.Errorf("Expected <footer /> to render full footer component HTML, got:\n%s", bodyStr)
 	}
 }
 

@@ -364,6 +364,19 @@ func (r *Renderer) discoverKnownComponents() map[string]bool {
 	return comps
 }
 
+var defineStartRegex = regexp.MustCompile(`(?s)^\s*\{\{\s*define\s+["'][^"']+["']\s*\}\}`)
+var defineEndRegex = regexp.MustCompile(`(?s)\{\{\s*end\s*\}\}\s*$`)
+
+func cleanComponentTemplate(content string) string {
+	cleaned := strings.TrimSpace(content)
+	if defineStartRegex.MatchString(cleaned) && defineEndRegex.MatchString(cleaned) {
+		cleaned = defineStartRegex.ReplaceAllString(cleaned, "")
+		cleaned = defineEndRegex.ReplaceAllString(cleaned, "")
+		cleaned = strings.TrimSpace(cleaned)
+	}
+	return cleaned
+}
+
 // loadComponents imports and registers component templates from /app/components/, /components/, and subfolders like /module/.
 func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 	t = t.Option("missingkey=zero")
@@ -398,24 +411,22 @@ func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 			}
 
 			content := string(data)
+			body := cleanComponentTemplate(content)
 			rel, _ := filepath.Rel(compDir, path)
 			relUnix := filepath.ToSlash(rel)
 
 			shortName := strings.TrimSuffix(entry.Name(), ".html")
 			lowerShort := strings.ToLower(shortName)
 
-			// Parse base template content
-			t, _ = t.Parse(content)
-
-			// Register aliases
-			t, _ = t.New(lowerShort).Option("missingkey=zero").Parse(content)
-			t, _ = t.New(shortName).Option("missingkey=zero").Parse(content)
-			t, _ = t.New("components/" + relUnix).Option("missingkey=zero").Parse(content)
-			t, _ = t.New("app/components/" + relUnix).Option("missingkey=zero").Parse(content)
+			// Register aliases with clean body content into named subtemplates
+			_, _ = t.New(lowerShort).Option("missingkey=zero").Parse(body)
+			_, _ = t.New(shortName).Option("missingkey=zero").Parse(body)
+			_, _ = t.New("components/" + relUnix).Option("missingkey=zero").Parse(body)
+			_, _ = t.New("app/components/" + relUnix).Option("missingkey=zero").Parse(body)
 
 			relNoExt := strings.TrimSuffix(relUnix, ".html")
-			t, _ = t.New(relUnix).Option("missingkey=zero").Parse(content)
-			t, _ = t.New(relNoExt).Option("missingkey=zero").Parse(content)
+			_, _ = t.New(relUnix).Option("missingkey=zero").Parse(body)
+			_, _ = t.New(relNoExt).Option("missingkey=zero").Parse(body)
 
 			return nil
 		})
