@@ -88,6 +88,9 @@ func Run(args []string) error {
 	case "reset":
 		return RunReset(cmdArgs)
 
+	case "secret", "key:generate":
+		return RunSecret(cmdArgs)
+
 	case "ai":
 		return RunAI(cmdArgs)
 
@@ -115,6 +118,7 @@ func PrintHelp() {
 	fmt.Println("  \x1b[1;36mcheck\x1b[0m                  Validate architecture rules, boundaries, and routes")
 	fmt.Println("  \x1b[1;36mbuild\x1b[0m [--standalone]   Compile and package optimized production release")
 	fmt.Println("  \x1b[1;36mdoctor\x1b[0m                 Run full system, database, and project diagnostics")
+	fmt.Println("  \x1b[1;36msecret\x1b[0m                 Generate or rotate cryptographic application secret keys")
 	fmt.Println("  \x1b[1;36mclean\x1b[0m                  Clean build caches and temporary artifacts")
 	fmt.Println("  \x1b[1;36mreset\x1b[0m                  Reset development database and rebuild project state")
 	fmt.Println()

@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"pogonian/internal/config"
 	"pogonian/templates"
 )
 
@@ -157,6 +158,11 @@ generator: "pogn create"
 		return fmt.Errorf("failed to write pogonian.lock: %w", err)
 	}
 	fmt.Printf("  ✓ Created pogonian.lock\n")
+
+	// Generate .env and .env.example with cryptographically secure secret keys
+	if _, err := config.EnsureEnvFile(absPath, opts.Name); err == nil {
+		fmt.Printf("  ✓ Created .env (with cryptographic APP_KEY) & .env.example\n")
+	}
 
 	printSuccessMessage(opts.Name, targetDir)
 	return nil

@@ -55,8 +55,11 @@ func DefaultConfig(name string) *Config {
 	}
 }
 
-// Load loads the configuration from pogonian.yaml in the specified directory.
+// Load loads the configuration from pogonian.yaml in the specified directory, and loads .env if present.
 func Load(projectDir string) (*Config, error) {
+	// Auto-load .env file if present
+	LoadEnv(projectDir)
+
 	configPath := filepath.Join(projectDir, "pogonian.yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -66,6 +69,20 @@ func Load(projectDir string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse pogonian.yaml: %w", err)
+	}
+
+	// Environment variable overrides
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		var p int
+		if _, err := fmt.Sscanf(portStr, "%d", &p); err == nil && p > 0 {
+			cfg.Server.Port = p
+		}
+	}
+	if host := os.Getenv("HOST"); host != "" {
+		cfg.Server.Host = host
+	}
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		cfg.Database.URL = dbURL
 	}
 
 	if cfg.Server.Port == 0 {

@@ -1,6 +1,9 @@
-# Pogonian generated files
+# Pogonian generated files and secrets
+.env
 dist/
 .pogonian/cache/
 *.db
+*.db-wal
+*.db-shm
 *.log
 .test-work/
