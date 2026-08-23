@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,7 +109,7 @@ func (s *Server) Handler() http.Handler {
 		baseHandler,
 		middleware.Recovery(s.DevMode),
 		middleware.RateLimit(500, time.Minute),
-		middleware.CSRF(false), // CSRF validation (soft-nav friendly)
+		middleware.CSRF(true), // Enabled CSRF protection
 	)
 }
 
@@ -122,49 +123,42 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		devtools.GlobalRecorder.Record(r.Method, r.URL.Path, rec.statusCode, duration)
 	}()
 
-	path := r.URL.Path
-
-	// 1. Serve embedded client runtime & devtools
-	if path == "/_pogn/runtime.js" {
-		runtime.Handler().ServeHTTP(rec, r)
-		return
-	}
-	if path == "/__pogn/devtools" {
-		devtools.ServeDevTools(s.ProjectDir).ServeHTTP(rec, r)
-		return
-	}
-	if path == "/__pogn/devbar.js" {
-		devtools.ServeDevBar().ServeHTTP(rec, r)
-		return
+	// 1. In-Page DevTools & DevBar routes (Dev Mode only)
+	if s.DevMode {
+		if r.URL.Path == "/__pogn/devtools" {
+			devtools.ServeDevTools(s.ProjectDir).ServeHTTP(rec, r)
+			return
+		}
+		if r.URL.Path == "/__pogn/devbar.js" {
+			devtools.ServeDevBar().ServeHTTP(rec, r)
+			return
+		}
 	}
 
-	// 2. Serve static project files (globals.css, globals.js, favicon.svg, public/*)
+	// 2. Serve Static Assets (Public & project static files with path traversal protection)
 	if s.handleStatic(rec, r) {
 		return
 	}
 
-	// 3. In dev mode, re-scan routes to pick up newly added/removed pages automatically
-	if s.DevMode {
-		_ = s.Router.Scan()
+	// 3. Serve Builtin Client Runtime
+	if r.URL.Path == "/_pogn/runtime.js" {
+		rec.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		rec.Header().Set("Cache-Control", "no-cache")
+		rec.Write([]byte(runtime.RuntimeJS))
+		return
 	}
 
-	// 4. Match filesystem route
-	route, params := s.Router.Match(path)
-	if route != nil {
-		// Handle POST Form Actions
-		if r.Method == http.MethodPost {
+	// 4. Match Filesystem Route
+	if route, params := s.Router.Match(r.URL.Path); route != nil {
+		// Handle Action Submissions (Form POST/PUT/DELETE)
+		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete {
 			if action, exists := s.Actions[route.Path]; exists {
-				if err := action(rec, r, params); err != nil {
-					rec.WriteHeader(http.StatusBadRequest)
-					rec.Header().Set("Content-Type", "text/html; charset=utf-8")
-					fmt.Fprintf(rec, "<h1>Action Error</h1><p>%v</p>", err)
-					return
-				}
-				if rec.statusCode != http.StatusOK {
-					return
-				}
-			} else if s.DB != nil {
-				// Fallback generic SQLite action handler for AI-generated modules
+				action(rec, r, params)
+				return
+			}
+
+			// Fallback dynamic action handler for SQLite dynamic entities
+			if s.DB != nil {
 				tableName := strings.Trim(route.Path, "/")
 				_ = r.ParseMultipartForm(32 << 20)
 				_ = r.ParseForm()
@@ -196,15 +190,30 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			}
 			data = loadedData
 		} else if s.DB != nil {
-			// Fallback generic SQLite data loader for AI-generated tables
-			tableName := strings.Trim(route.Path, "/")
-			items, _ := s.DB.GenericSelect(tableName)
-			if items == nil {
-				items = make([]map[string]interface{}, 0)
-			}
-			data = map[string]interface{}{
-				"Items": items,
-				"Total": len(items),
+			// Fallback generic SQLite data loader for dynamic tables and single records
+			cleanPath := strings.Trim(route.Path, "/")
+			tableName := strings.Trim(strings.Split(cleanPath, "/")[0], "/")
+
+			if idStr, ok := params["id"]; ok && idStr != "" {
+				var item map[string]interface{}
+				if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+					item, _ = s.DB.GenericSelectByID(tableName, id)
+				}
+				data = map[string]interface{}{
+					"Product": item,
+					"Item":    item,
+					"Record":  item,
+				}
+			} else {
+				items, _ := s.DB.GenericSelect(tableName)
+				if items == nil {
+					items = make([]map[string]interface{}, 0)
+				}
+				data = map[string]interface{}{
+					"Products": items,
+					"Items":    items,
+					"Total":    len(items),
+				}
 			}
 		} else {
 			data = map[string]interface{}{
@@ -220,13 +229,13 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		csrfToken := middleware.GenerateToken()
+		csrfToken, _ := middleware.GenerateToken()
 
 		html, err := s.Renderer.Render(route, params, query, data, csrfToken)
 		if err != nil {
 			rec.WriteHeader(http.StatusInternalServerError)
 			rec.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprintf(rec, "<h1>500 Internal Server Error</h1><pre>%s</pre>", err.Error())
+			fmt.Fprintf(rec, "<h1>500 Internal Server Error</h1><pre>failed to execute page template %s: %v</pre>", route.PagePath, err)
 			return
 		}
 
@@ -245,23 +254,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) bool {
-	path := strings.TrimPrefix(r.URL.Path, "/")
-	if path == "" {
+	cleaned := filepath.Clean(r.URL.Path)
+	if cleaned == "/" || cleaned == "." {
 		return false
 	}
+	relPath := strings.TrimPrefix(cleaned, "/")
+
+	cleanProject := filepath.Clean(s.ProjectDir)
 
 	// Direct files in project root (e.g. globals.css, globals.js, favicon.svg)
-	rootCandidate := filepath.Join(s.ProjectDir, path)
-	if info, err := os.Stat(rootCandidate); err == nil && !info.IsDir() {
-		http.ServeFile(w, r, rootCandidate)
-		return true
+	rootCandidate := filepath.Join(cleanProject, relPath)
+	if strings.HasPrefix(rootCandidate, cleanProject) {
+		if info, err := os.Stat(rootCandidate); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, rootCandidate)
+			return true
+		}
 	}
 
 	// Files inside public/
-	publicCandidate := filepath.Join(s.ProjectDir, "public", path)
-	if info, err := os.Stat(publicCandidate); err == nil && !info.IsDir() {
-		http.ServeFile(w, r, publicCandidate)
-		return true
+	publicDir := filepath.Join(cleanProject, "public")
+	publicCandidate := filepath.Join(publicDir, relPath)
+	if strings.HasPrefix(publicCandidate, publicDir) {
+		if info, err := os.Stat(publicCandidate); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, publicCandidate)
+			return true
+		}
 	}
 
 	return false

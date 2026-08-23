@@ -70,7 +70,8 @@ func TestAuth_UserRegistrationAndLogin(t *testing.T) {
 }
 
 func TestAuth_SessionAndRouteGuard(t *testing.T) {
-	sm := auth.NewSessionManager(1 * time.Hour)
+	sm := auth.NewSessionManager(auth.NewMemorySessionStore(), 1*time.Hour)
+	_ = sm
 
 	user := &auth.User{
 		ID:    1,

@@ -67,6 +67,27 @@ func Run(args []string) error {
 	case "remove", "rm":
 		return RunRemove(cmdArgs)
 
+	case "impact":
+		return RunImpact(cmdArgs)
+
+	case "doctor":
+		return RunDoctor(cmdArgs)
+
+	case "explain":
+		return RunExplain(cmdArgs)
+
+	case "blueprint":
+		return RunBlueprint(cmdArgs)
+
+	case "docs":
+		return RunDocs(cmdArgs)
+
+	case "clean":
+		return RunClean(cmdArgs)
+
+	case "reset":
+		return RunReset(cmdArgs)
+
 	case "ai":
 		return RunAI(cmdArgs)
 
@@ -88,13 +109,20 @@ func PrintHelp() {
 	fmt.Println("\x1b[1mUSAGE:\x1b[0m")
 	fmt.Println("  pogn <command> [arguments] [flags]")
 	fmt.Println()
-	fmt.Println("\x1b[1mDEVELOPMENT:\x1b[0m")
+	fmt.Println("\x1b[1mDEVELOPMENT & DIAGNOSTICS:\x1b[0m")
 	fmt.Println("  \x1b[1;36mcreate\x1b[0m <name> [dir]    Scaffold a new Pogonian application")
 	fmt.Println("  \x1b[1;36mdev\x1b[0m                    Start live dev server with soft navigation & DevTools")
 	fmt.Println("  \x1b[1;36mcheck\x1b[0m                  Validate architecture rules, boundaries, and routes")
 	fmt.Println("  \x1b[1;36mbuild\x1b[0m [--standalone]   Compile and package optimized production release")
+	fmt.Println("  \x1b[1;36mdoctor\x1b[0m                 Run full system, database, and project diagnostics")
+	fmt.Println("  \x1b[1;36mclean\x1b[0m                  Clean build caches and temporary artifacts")
+	fmt.Println("  \x1b[1;36mreset\x1b[0m                  Reset development database and rebuild project state")
 	fmt.Println()
-	fmt.Println("\x1b[1mSCAFFOLDING & ARCHITECTURE:\x1b[0m")
+	fmt.Println("\x1b[1mARCHITECTURE & IMPACT:\x1b[0m")
+	fmt.Println("  \x1b[1;36mimpact\x1b[0m <target>        Analyze blast radius & affected layers of a change")
+	fmt.Println("  \x1b[1;36mexplain\x1b[0m [target]       Explain full-stack architecture or specific feature flow")
+	fmt.Println("  \x1b[1;36mblueprint\x1b[0m              Export architecture blueprint (Mermaid / JSON / YAML)")
+	fmt.Println("  \x1b[1;36mdocs\x1b[0m                   Generate automatic API and route documentation")
 	fmt.Println("  \x1b[1;36madd table\x1b[0m <name>       Scaffold full-stack Go backend & HTML frontend for entity")
 	fmt.Println("  \x1b[1;36madd route\x1b[0m <path>       Add a new standalone filesystem route page")
 	fmt.Println("  \x1b[1;36mremove table\x1b[0m <name>    Delete entity backend tiers and frontend route")
@@ -107,7 +135,7 @@ func PrintHelp() {
 	fmt.Println("  \x1b[1;36mimport\x1b[0m <path>          Analyze legacy React, Next, Vue, or Express app")
 	fmt.Println("  \x1b[1;36mmigrate\x1b[0m <path>         Convert legacy application into Pogonian")
 	fmt.Println()
-	fmt.Println("\x1b[1mSECURITY & BENCHMARK:\x1b[0m")
+	fmt.Println("\x1b[1mSECURITY & RESEARCH:\x1b[0m")
 	fmt.Println("  \x1b[1;36msecurity audit\x1b[0m         Run static security and vulnerability scanner")
 	fmt.Println("  \x1b[1;36mbenchmark\x1b[0m              Run MSc empirical research evaluation benchmark")
 	fmt.Println()

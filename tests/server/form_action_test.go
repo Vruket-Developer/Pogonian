@@ -49,14 +49,20 @@ func TestServer_FormActionAndDynamicRoute(t *testing.T) {
 		"description": {"Custom mechanical keyboard with RGB switches"},
 	}
 
+	postReq, err := http.NewRequest("POST", ts.URL+"/products", strings.NewReader(formData.Encode()))
+	if err != nil {
+		t.Fatalf("Failed to create POST request: %v", err)
+	}
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.Header.Set("X-Pogonian-Request", "true")
+
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow redirect to follow
 			return nil
 		},
 	}
 
-	postRes, err := client.PostForm(ts.URL+"/products", formData)
+	postRes, err := client.Do(postReq)
 	if err != nil {
 		t.Fatalf("POST /products failed: %v", err)
 	}

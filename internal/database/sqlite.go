@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,6 +168,13 @@ func (db *DB) GenericSelect(table string) ([]map[string]interface{}, error) {
 			if b, ok := val.([]byte); ok {
 				val = string(b)
 			}
+			if strVal, ok := val.(string); ok {
+				if strings.Contains(strings.ToLower(col), "price") || strings.Contains(strings.ToLower(col), "amount") {
+					if f, err := strconv.ParseFloat(strVal, 64); err == nil {
+						val = f
+					}
+				}
+			}
 			entry[col] = val
 
 			pascal := ToPascalCase(col)
@@ -178,6 +186,59 @@ func (db *DB) GenericSelect(table string) ([]map[string]interface{}, error) {
 		results = append(results, entry)
 	}
 	return results, nil
+}
+
+// GenericSelectByID reads a single record from any table by ID.
+func (db *DB) GenericSelectByID(table string, id int64) (map[string]interface{}, error) {
+	if !IsSafeIdentifier(table) {
+		return nil, fmt.Errorf("invalid table identifier: %s", table)
+	}
+
+	queryStmt := "SELECT * FROM " + table + " WHERE id = ?"
+	rows, err := db.Query(queryStmt, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	if rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, err
+		}
+
+		entry := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				val = string(b)
+			}
+			if strVal, ok := val.(string); ok {
+				if strings.Contains(strings.ToLower(col), "price") || strings.Contains(strings.ToLower(col), "amount") {
+					if f, err := strconv.ParseFloat(strVal, 64); err == nil {
+						val = f
+					}
+				}
+			}
+			entry[col] = val
+			pascal := ToPascalCase(col)
+			entry[pascal] = val
+			if strings.EqualFold(col, "id") {
+				entry["ID"] = val
+			}
+		}
+		return entry, nil
+	}
+	return nil, nil
 }
 
 // ToPascalCase converts snake_case or lowercase string to PascalCase (e.g. item_name -> ItemName, created_at -> CreatedAt).

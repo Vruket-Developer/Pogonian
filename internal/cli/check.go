@@ -151,24 +151,79 @@ func RunBuild(args []string) error {
 		return err
 	}
 
+	// 1. Synthesize standalone Go production server entrypoint
+	buildDir := filepath.Join(absDir, ".pogonian", "build")
+	if err := os.MkdirAll(buildDir, 0755); err != nil {
+		return err
+	}
+
+	entrypointCode := fmt.Sprintf(`package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"pogonian/internal/config"
+	"pogonian/internal/server"
+)
+
+func main() {
+	cfg, err := config.Load(".")
+	if err != nil {
+		cfg = config.DefaultConfig("%s")
+	}
+
+	// Override port via PORT environment variable if present (e.g. Heroku, Fly.io, Cloud Run)
+	if portEnv := os.Getenv("PORT"); portEnv != "" {
+		var p int
+		if _, err := fmt.Sscanf(portEnv, "%%d", &p); err == nil && p > 0 {
+			cfg.Server.Port = p
+		}
+	}
+
+	srv, err := server.New(".", cfg, false)
+	if err != nil {
+		log.Fatalf("Failed to initialize Pogonian server: %%v", err)
+	}
+
+	// Setup graceful shutdown signal listener
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.Start(); err != nil {
+			log.Fatalf("Production server error: %%v", err)
+		}
+	}()
+
+	<-stop
+	fmt.Println("\n🛑 Pogonian server shut down gracefully.")
+}
+`, appName)
+
+	entryFile := filepath.Join(buildDir, "main.go")
+	if err := os.WriteFile(entryFile, []byte(entrypointCode), 0644); err != nil {
+		return fmt.Errorf("failed to write build entrypoint: %w", err)
+	}
+
 	outBin := filepath.Join(distDir, appName)
 	fmt.Printf("  🔨 Compiling standalone optimized production binary: \x1b[1;36m%s\x1b[0m\n", outBin)
 
-	cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outBin, "./cmd/pogn")
+	cmd := exec.Command("go", "build", "-ldflags=-s -w", "-o", outBin, "./.pogonian/build")
 	cmd.Dir = absDir
-	// If project doesn't have custom main.go, compile Pogonian runtime wrapper
-	if _, err := os.Stat(filepath.Join(absDir, "cmd", "pogn", "main.go")); os.IsNotExist(err) {
-		// Compile using current binary
-		srcBin, _ := os.Executable()
-		if srcBin != "" {
-			data, err := os.ReadFile(srcBin)
-			if err == nil {
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		// Fallback: If external project without direct pogonian module path, build from current binary
+		srcBin, execErr := os.Executable()
+		if execErr == nil && srcBin != "" {
+			if data, readErr := os.ReadFile(srcBin); readErr == nil {
 				_ = os.WriteFile(outBin, data, 0755)
 			}
-		}
-	} else {
-		if out, err := cmd.CombinedOutput(); err != nil {
-			fmt.Printf("  ⚠ Native Go compilation note: %s\n", string(out))
+		} else {
+			return fmt.Errorf("compilation failed: %s", string(out))
 		}
 	}
 
@@ -181,7 +236,8 @@ func RunBuild(args []string) error {
 	fmt.Println()
 	fmt.Printf("✨ \x1b[1;32mStandalone production build complete!\x1b[0m\n")
 	fmt.Printf("   • Binary:    \x1b[1m%s\x1b[0m (%.1f MB)\n", outBin, sizeMB)
-	fmt.Printf("   • Mode:      Zero external dependencies (HTML/JS/SQLite embedded)\n")
-	fmt.Printf("   • Run:       ./dist/%s\n\n", appName)
+	fmt.Printf("   • Mode:      Zero external dependencies (Single Binary Release)\n")
+	fmt.Printf("   • Run:       \x1b[1;34m./dist/%s\x1b[0m\n\n", appName)
+
 	return nil
 }

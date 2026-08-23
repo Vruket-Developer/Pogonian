@@ -24,6 +24,7 @@ type Route struct {
 type Router struct {
 	AppDir string
 	Routes []*Route
+	Trie   *TrieRouter
 }
 
 // New creates a new filesystem router for the given app directory.
@@ -31,6 +32,7 @@ func New(appDir string) (*Router, error) {
 	r := &Router{
 		AppDir: appDir,
 		Routes: make([]*Route, 0),
+		Trie:   NewTrieRouter(),
 	}
 
 	if err := r.Scan(); err != nil {
@@ -126,11 +128,18 @@ func (r *Router) Scan() error {
 		return len(routes[i].Path) > len(routes[j].Path)
 	})
 
+	// Build high-performance Radix Route Trie
+	trie := NewTrieRouter()
+	for _, route := range routes {
+		trie.Insert(route.Path, route)
+	}
+
 	r.Routes = routes
+	r.Trie = trie
 	return nil
 }
 
-// Match matches an incoming request path to a Route and extracts path params.
+// Match matches an incoming request path to a Route and extracts path params using the Radix Trie.
 func (r *Router) Match(requestPath string) (*Route, map[string]string) {
 	// Normalize path
 	cleanPath := filepath.Clean(requestPath)
@@ -138,6 +147,14 @@ func (r *Router) Match(requestPath string) (*Route, map[string]string) {
 		cleanPath = "/" + cleanPath
 	}
 
+	// 1. Fast Trie lookup
+	if r.Trie != nil {
+		if route, params := r.Trie.Match(cleanPath); route != nil {
+			return route, params
+		}
+	}
+
+	// 2. Fallback regex matcher
 	for _, route := range r.Routes {
 		matches := route.regex.FindStringSubmatch(cleanPath)
 		if len(matches) > 0 {

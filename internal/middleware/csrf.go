@@ -3,6 +3,7 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 )
 
@@ -12,13 +13,13 @@ const (
 	CSRFFormField  = "_csrf"
 )
 
-// GenerateToken generates a cryptographically secure 32-byte hexadecimal CSRF token.
-func GenerateToken() string {
+// GenerateToken generates a cryptographically secure 32-byte hexadecimal CSRF token, failing closed if randomness fails.
+func GenerateToken() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
-		return "csrf_fallback_token_001"
+		return "", fmt.Errorf("cryptographic randomness failure: %w", err)
 	}
-	return hex.EncodeToString(bytes)
+	return hex.EncodeToString(bytes), nil
 }
 
 // CSRF provides Cross-Site Request Forgery protection.
@@ -34,12 +35,17 @@ func CSRF(enabled bool) Middleware {
 			cookie, err := r.Cookie(CSRFCookieName)
 			var token string
 			if err != nil || cookie.Value == "" {
-				token = GenerateToken()
+				newToken, err := GenerateToken()
+				if err != nil {
+					http.Error(w, "500 Internal Server Error: Failed to generate CSRF token", http.StatusInternalServerError)
+					return
+				}
+				token = newToken
 				http.SetCookie(w, &http.Cookie{
 					Name:     CSRFCookieName,
 					Value:    token,
 					Path:     "/",
-					HttpOnly: false, // accessible to client runtime if needed
+					HttpOnly: false, // accessible to client runtime
 					SameSite: http.SameSiteLaxMode,
 				})
 			} else {
@@ -53,19 +59,18 @@ func CSRF(enabled bool) Middleware {
 			}
 
 			// For state-changing methods (POST, PUT, DELETE, PATCH), validate token
-			// Check header first
 			receivedToken := r.Header.Get(CSRFHeaderName)
 
-			// If not in header and it is a form POST, check form body or query
+			// If not in header, check form body or query
 			if receivedToken == "" {
-				if err := r.ParseForm(); err == nil {
-					receivedToken = r.FormValue(CSRFFormField)
-				}
+				_ = r.ParseMultipartForm(32 << 20)
+				_ = r.ParseForm()
+				receivedToken = r.FormValue(CSRFFormField)
 			}
 
 			// Allow Pogonian runtime internal requests with X-Pogonian-Request header for soft navigation
 			if r.Header.Get("X-Pogonian-Request") == "true" && receivedToken == "" {
-				receivedToken = token // Validated via same-origin policy + custom header
+				receivedToken = token
 			}
 
 			if receivedToken == "" || receivedToken != token {

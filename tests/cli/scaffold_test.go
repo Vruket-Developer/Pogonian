@@ -64,7 +64,7 @@ func TestCLI_AddAndRemoveRoute(t *testing.T) {
 		t.Fatalf("pogn add route failed: %v\nOutput: %s", err, out)
 	}
 
-	if !strings.Contains(out, "Added route") || !strings.Contains(out, "faq") {
+	if (!strings.Contains(out, "Added route") && !strings.Contains(out, "Generated route")) || !strings.Contains(out, "faq") {
 		t.Errorf("Expected route added message, got:\n%s", out)
 	}
 	app.AssertFileExists("app/faq/page.html")
