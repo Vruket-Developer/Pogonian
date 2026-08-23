@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"pogonian/internal/ai"
+	"pogonian/internal/architecture"
 )
 
 // RunAdd handles `pogn add table <name>`, `pogn add module <name>`, `pogn add route <path>`.
@@ -54,7 +55,23 @@ func RunAdd(args []string) error {
 		title := filepath.Base(routeDir)
 		titlePascal := strings.ToUpper(title[:1]) + title[1:]
 
-		htmlContent := fmt.Sprintf(`<section class="content-section">
+		// Check if matching Go entity exists in server/<routePath>/entity.go
+		entityPath := filepath.Join(absDir, "server", routePath, "entity.go")
+		var htmlContent string
+
+		if _, err := os.Stat(entityPath); err == nil {
+			// Schema-driven generation from Go struct!
+			structName, fields, err := architecture.ParseEntityFile(entityPath)
+			if err == nil && len(fields) > 0 {
+				htmlContent = architecture.GenerateHTMLFromFields(routePath, structName, fields)
+				fmt.Println()
+				fmt.Printf("🧬 \x1b[1;35mSchema-Driven AST Generator:\x1b[0m Inspected \x1b[1mserver/%s/entity.go\x1b[0m\n", routePath)
+				fmt.Printf("   • Mapped %d struct fields to HTML inputs & table columns\n", len(fields))
+			}
+		}
+
+		if htmlContent == "" {
+			htmlContent = fmt.Sprintf(`<section class="content-section">
     <h1>%s</h1>
     <p style="color: var(--text-secondary);">Standalone page route created with <code>pogn add route /%s</code></p>
     <div class="card" style="margin-top: 1.5rem;">
@@ -62,13 +79,14 @@ func RunAdd(args []string) error {
     </div>
 </section>
 `, titlePascal, routePath, routePath)
+		}
 
 		if err := os.WriteFile(pageFile, []byte(htmlContent), 0644); err != nil {
 			return err
 		}
 
 		fmt.Println()
-		fmt.Printf("✨ \x1b[1;32mAdded route:\x1b[0m \x1b[1m/%s\x1b[0m\n", routePath)
+		fmt.Printf("✨ \x1b[1;32mGenerated route:\x1b[0m \x1b[1m/%s\x1b[0m\n", routePath)
 		fmt.Printf("   • File: \x1b[1;36mapp/%s/page.html\x1b[0m\n", routePath)
 		fmt.Printf("   • Live: \x1b[1;34mhttp://localhost:3000/%s\x1b[0m\n\n", routePath)
 		return nil
