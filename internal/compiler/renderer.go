@@ -234,7 +234,7 @@ func (r *Renderer) executeCached(cached *CachedTemplate, ctx RenderContext) ([]b
 
 var pognTagRegex = regexp.MustCompile(`(?i)<(?:pogn:|component:)([a-zA-Z0-9_\-]+)\s*(?:/>|></(?:pogn:|component:)[a-zA-Z0-9_\-]+>)`)
 var compNameTagRegex = regexp.MustCompile(`(?i)<component\s+name=["']([a-zA-Z0-9_\-]+)["']\s*(?:/>|></component>)`)
-var selfClosingTagRegex = regexp.MustCompile(`<([a-zA-Z0-9_\-]+)\s*/>`)
+var selfClosingTagRegex = regexp.MustCompile(`(?i)<([a-zA-Z0-9_\-]+)\s*/>`)
 var customElementRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9_]*)\s*(?:/>|></[A-Z][a-zA-Z0-9_]*>)`)
 
 // preprocessComponentTags automatically expands tags like <footer />, <Footer />, <pogn:footer />, and <component name="footer" /> into {{ template "footer" . }}
@@ -245,7 +245,7 @@ func (r *Renderer) preprocessComponentTags(html string, knownComponents map[stri
 	// 2. Expand <component name="footer" />
 	html = compNameTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
 
-	// 3. Expand self-closing HTML tags like <footer />, <header />, <sidebar /> when component exists
+	// 3. Expand self-closing HTML tags like <footer />, <header />, <sidebar />
 	html = selfClosingTagRegex.ReplaceAllStringFunc(html, func(match string) string {
 		submatches := selfClosingTagRegex.FindStringSubmatch(match)
 		if len(submatches) > 1 {
@@ -278,10 +278,12 @@ func (r *Renderer) discoverKnownComponents() map[string]bool {
 	comps := make(map[string]bool)
 
 	dirsToScan := []string{
+		filepath.Join(r.BaseDir, "app", "components"),
 		filepath.Join(r.BaseDir, "components"),
-		filepath.Join(filepath.Dir(r.BaseDir), "components"),
+		filepath.Join(r.BaseDir, "app", "components", "module"),
 		filepath.Join(r.BaseDir, "components", "module"),
-		filepath.Join(filepath.Dir(r.BaseDir), "components", "module"),
+		filepath.Join(filepath.Dir(r.BaseDir), "app", "components"),
+		filepath.Join(filepath.Dir(r.BaseDir), "components"),
 	}
 
 	for _, d := range dirsToScan {
@@ -300,7 +302,9 @@ func (r *Renderer) discoverKnownComponents() map[string]bool {
 // loadComponents imports and registers component templates from /app/components/, /components/, and subfolders like /module/.
 func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 	dirsToScan := []string{
+		filepath.Join(r.BaseDir, "app", "components"),
 		filepath.Join(r.BaseDir, "components"),
+		filepath.Join(filepath.Dir(r.BaseDir), "app", "components"),
 		filepath.Join(filepath.Dir(r.BaseDir), "components"),
 	}
 
@@ -333,18 +337,15 @@ func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 			shortName := strings.TrimSuffix(entry.Name(), ".html")
 			lowerShort := strings.ToLower(shortName)
 
-			// Parse base template
+			// Parse base template content
 			t, _ = t.Parse(content)
 
-			// Register aliases:
-			// 1. "footer"
+			// Register aliases
 			t, _ = t.New(lowerShort).Parse(content)
 			t, _ = t.New(shortName).Parse(content)
-
-			// 2. "components/footer.html" or "components/module/footer.html"
 			t, _ = t.New("components/" + relUnix).Parse(content)
+			t, _ = t.New("app/components/" + relUnix).Parse(content)
 
-			// 3. "module/footer" or "module/footer.html"
 			relNoExt := strings.TrimSuffix(relUnix, ".html")
 			t, _ = t.New(relUnix).Parse(content)
 			t, _ = t.New(relNoExt).Parse(content)
