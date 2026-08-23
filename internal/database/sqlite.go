@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -77,51 +78,119 @@ func IsSafeIdentifier(name string) bool {
 
 // GenericInsert safely inserts title and content into a dynamic entity table.
 func (db *DB) GenericInsert(table, title, content string) error {
+	return db.GenericInsertForm(table, map[string]string{
+		"title":   title,
+		"content": content,
+	})
+}
+
+// GenericInsertForm dynamically creates table columns and inserts any form key-value pairs.
+func (db *DB) GenericInsertForm(table string, formValues map[string]string) error {
 	if !IsSafeIdentifier(table) {
 		return fmt.Errorf("invalid table identifier: %s", table)
 	}
 
-	createStmt := "CREATE TABLE IF NOT EXISTS " + table + ` (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		title TEXT NOT NULL,
-		content TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);`
+	var cols []string
+	var colDefs []string
+	var placeholders []string
+	var vals []interface{}
+
+	for k, v := range formValues {
+		k = strings.TrimSpace(k)
+		if k == "_csrf" || k == "" || !IsSafeIdentifier(k) {
+			continue
+		}
+		cols = append(cols, k)
+		colDefs = append(colDefs, k+" TEXT")
+		placeholders = append(placeholders, "?")
+		vals = append(vals, v)
+	}
+
+	cols = append(cols, "created_at")
+	colDefs = append(colDefs, "created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+	placeholders = append(placeholders, "?")
+	vals = append(vals, time.Now().UTC().Format(time.RFC3339))
+
+	// Ensure table exists
+	createStmt := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT, %s);",
+		table, strings.Join(colDefs, ", "))
 	if _, err := db.Exec(createStmt); err != nil {
 		return err
 	}
 
-	insertStmt := "INSERT INTO " + table + " (title, content, created_at) VALUES (?, ?, ?)"
-	_, err := db.Exec(insertStmt, title, content, time.Now().UTC().Format(time.RFC3339))
+	// For existing tables, ensure columns exist
+	for _, col := range cols {
+		if col != "id" && col != "created_at" && IsSafeIdentifier(col) {
+			alterStmt := "ALTER TABLE " + table + " ADD COLUMN " + col + " TEXT"
+			_, _ = db.Exec(alterStmt)
+		}
+	}
+
+	queryStmt := "INSERT INTO " + table + " (" + strings.Join(cols, ", ") + ") VALUES (" + strings.Join(placeholders, ", ") + ")"
+	_, err := db.Exec(queryStmt, vals...)
 	return err
 }
 
-// GenericRecord represents a standard dynamic row.
-type GenericRecord struct {
-	ID      int64
-	Title   string
-	Content string
-}
-
-// GenericSelect safely reads rows from a dynamic entity table.
-func (db *DB) GenericSelect(table string) ([]*GenericRecord, error) {
+// GenericSelect safely reads all columns from any table into map entries.
+func (db *DB) GenericSelect(table string) ([]map[string]interface{}, error) {
 	if !IsSafeIdentifier(table) {
 		return nil, fmt.Errorf("invalid table identifier: %s", table)
 	}
 
-	selectStmt := "SELECT id, title, content FROM " + table + " ORDER BY id DESC"
+	selectStmt := "SELECT * FROM " + table + " ORDER BY id DESC"
 	rows, err := db.Query(selectStmt)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var items []*GenericRecord
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []map[string]interface{}
 	for rows.Next() {
-		r := &GenericRecord{}
-		if err := rows.Scan(&r.ID, &r.Title, &r.Content); err == nil {
-			items = append(items, r)
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+
+		entry := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				val = string(b)
+			}
+			entry[col] = val
+
+			pascal := ToPascalCase(col)
+			entry[pascal] = val
+			if strings.EqualFold(col, "id") {
+				entry["ID"] = val
+			}
+		}
+		results = append(results, entry)
+	}
+	return results, nil
+}
+
+// ToPascalCase converts snake_case or lowercase string to PascalCase (e.g. item_name -> ItemName, created_at -> CreatedAt).
+func ToPascalCase(s string) string {
+	parts := strings.Split(s, "_")
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
 		}
 	}
-	return items, nil
+	res := strings.Join(parts, "")
+	if strings.EqualFold(res, "id") {
+		return "ID"
+	}
+	return res
 }

@@ -169,17 +169,15 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 				_ = r.ParseMultipartForm(32 << 20)
 				_ = r.ParseForm()
 
-				title := r.FormValue("title")
-				if title == "" {
-					title = r.FormValue("name")
-				}
-				content := r.FormValue("content")
-				if content == "" {
-					content = r.FormValue("description")
+				formMap := make(map[string]string)
+				for k, v := range r.PostForm {
+					if len(v) > 0 && k != "_csrf" {
+						formMap[k] = v[0]
+					}
 				}
 
-				if title != "" {
-					_ = s.DB.GenericInsert(tableName, title, content)
+				if len(formMap) > 0 {
+					_ = s.DB.GenericInsertForm(tableName, formMap)
 				}
 				http.Redirect(rec, r, route.Path, http.StatusSeeOther)
 				return
@@ -202,7 +200,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			tableName := strings.Trim(route.Path, "/")
 			items, _ := s.DB.GenericSelect(tableName)
 			if items == nil {
-				items = make([]*database.GenericRecord, 0)
+				items = make([]map[string]interface{}, 0)
 			}
 			data = map[string]interface{}{
 				"Items": items,
