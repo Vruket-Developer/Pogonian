@@ -1,4 +1,4 @@
-.PHONY: all build test dev integration clean fmt
+.PHONY: all build test test-all dev benchmark security integration clean fmt
 
 # Build binary locally into ./bin/pogn
 build:
@@ -10,10 +10,23 @@ build:
 test:
 	go test -v ./...
 
+# Run the complete exhaustive test suite across all subsystems
+test-all:
+	@chmod +x scripts/test.sh
+	@./scripts/test.sh
+
 # Run the automated dev loop (Build -> Disposable App -> Verify -> Clean)
 dev:
 	@chmod +x scripts/dev.sh
 	@./scripts/dev.sh
+
+# Run MSc empirical research benchmark
+benchmark: build
+	@./bin/pogn benchmark
+
+# Run static security and vulnerability audit
+security: build
+	@./bin/pogn security audit
 
 # Run integration tests against testlab
 integration: test

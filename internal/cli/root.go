@@ -65,8 +65,10 @@ func Run(args []string) error {
 		return RunAI(cmdArgs)
 
 	case "security":
-		fmt.Println("🛡️  Pogonian Security Audit (Coming in Phase 11)...")
-		return nil
+		return RunSecurity(cmdArgs)
+
+	case "benchmark":
+		return RunBenchmark(cmdArgs)
 
 	default:
 		return fmt.Errorf("unknown command '%s'. Run 'pogn --help' for usage", cmd)
