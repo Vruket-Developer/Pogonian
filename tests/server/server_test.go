@@ -129,10 +129,10 @@ func TestServer_ComponentTagAutoExpansionAndMultiPath(t *testing.T) {
 
 	projectDir := app.AppPath()
 
-	// 1. Create a component in /components/module/footer.html
+	// 1. Create a component with .Slot and .Class evaluations
 	rootModuleCompDir := filepath.Join(projectDir, "components", "module")
 	_ = os.MkdirAll(rootModuleCompDir, 0755)
-	_ = os.WriteFile(filepath.Join(rootModuleCompDir, "footer.html"), []byte(`<footer class="my-custom-footer"><p>&copy; 2026 Pogonian Framework</p></footer>`), 0644)
+	_ = os.WriteFile(filepath.Join(rootModuleCompDir, "footer.html"), []byte(`<footer class="my-custom-footer {{ .Class }}"><div class="slot">{{ .Slot }}</div><p>&copy; {{ .CurrentYear }} Pogonian Framework</p></footer>`), 0644)
 
 	// 2. Put <footer /> tag into app/about/page.html
 	aboutPage := filepath.Join(projectDir, "app", "about", "page.html")
@@ -154,6 +154,9 @@ func TestServer_ComponentTagAutoExpansionAndMultiPath(t *testing.T) {
 	res.Body.Close()
 
 	bodyStr := string(body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200 OK, got %d. Body:\n%s", res.StatusCode, bodyStr)
+	}
 	if !strings.Contains(bodyStr, "my-custom-footer") {
 		t.Errorf("Expected <footer /> to expand to footer component content from components/module/footer.html, got:\n%s", bodyStr)
 	}

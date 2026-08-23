@@ -27,6 +27,8 @@ type RenderContext struct {
 	Content   template.HTML          `json:"content"`
 	Meta      map[string]interface{} `json:"meta"`
 	Class     string                 `json:"class"`
+	Slot      template.HTML          `json:"slot"`
+	Children  template.HTML          `json:"children"`
 	Props     map[string]interface{} `json:"props"`
 	User      interface{}            `json:"user"`
 	Year      int                    `json:"year"`
@@ -50,6 +52,39 @@ func (c RenderContext) Get(key string) interface{} {
 		}
 	}
 	return ""
+}
+
+// ToMap converts RenderContext into a dynamic map with missingkey=zero tolerance.
+func (c RenderContext) ToMap() map[string]interface{} {
+	m := map[string]interface{}{
+		"AppName":     c.AppName,
+		"Title":       c.Title,
+		"Params":      c.Params,
+		"Query":       c.Query,
+		"Data":        c.Data,
+		"CSRFToken":   c.CSRFToken,
+		"Content":     c.Content,
+		"Meta":        c.Meta,
+		"Class":       c.Class,
+		"Slot":        c.Slot,
+		"Children":    c.Children,
+		"Props":       c.Props,
+		"User":        c.User,
+		"Year":        c.Year,
+		"CurrentYear": c.Year,
+	}
+
+	if c.Props != nil {
+		for k, v := range c.Props {
+			m[k] = v
+		}
+	}
+	if c.Meta != nil {
+		for k, v := range c.Meta {
+			m[k] = v
+		}
+	}
+	return m
 }
 
 // CachedTemplate holds a precompiled template chain for a route.
@@ -174,6 +209,8 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		Year:      time.Now().Year(),
 	}
 
+	dataMap := ctx.ToMap()
+
 	if !r.DevMode {
 		r.cacheMu.RLock()
 		cached, exists := r.cache[route.Path]
@@ -200,7 +237,7 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 	}
 
 	var pageBuf bytes.Buffer
-	if err := pageTmpl.Execute(&pageBuf, ctx); err != nil {
+	if err := pageTmpl.Execute(&pageBuf, dataMap); err != nil {
 		return nil, fmt.Errorf("failed to execute page template %s: %w", route.PagePath, err)
 	}
 
@@ -221,10 +258,10 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 			return nil, fmt.Errorf("failed to parse layout template %s: %w", layoutPath, err)
 		}
 
-		ctx.Content = template.HTML(currentHTML)
+		dataMap["Content"] = template.HTML(currentHTML)
 
 		var layoutBuf bytes.Buffer
-		if err := layoutTmpl.Execute(&layoutBuf, ctx); err != nil {
+		if err := layoutTmpl.Execute(&layoutBuf, dataMap); err != nil {
 			return nil, fmt.Errorf("failed to execute layout template %s: %w", layoutPath, err)
 		}
 
@@ -236,8 +273,10 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 }
 
 func (r *Renderer) executeCached(cached *CachedTemplate, ctx RenderContext) ([]byte, error) {
+	dataMap := ctx.ToMap()
+
 	var pageBuf bytes.Buffer
-	if err := cached.PageTemplate.Execute(&pageBuf, ctx); err != nil {
+	if err := cached.PageTemplate.Execute(&pageBuf, dataMap); err != nil {
 		return nil, err
 	}
 
@@ -245,10 +284,10 @@ func (r *Renderer) executeCached(cached *CachedTemplate, ctx RenderContext) ([]b
 
 	for i := len(cached.LayoutTemplates) - 1; i >= 0; i-- {
 		lt := cached.LayoutTemplates[i]
-		ctx.Content = template.HTML(currentHTML)
+		dataMap["Content"] = template.HTML(currentHTML)
 
 		var layoutBuf bytes.Buffer
-		if err := lt.Execute(&layoutBuf, ctx); err != nil {
+		if err := lt.Execute(&layoutBuf, dataMap); err != nil {
 			return nil, err
 		}
 		currentHTML = layoutBuf.String()
