@@ -56,19 +56,16 @@ func Run(args []string) error {
 		return RunAnalyze(cmdArgs)
 
 	case "import":
-		fmt.Println("📥 Importing legacy framework application (Coming in Step 22)...")
-		return nil
+		return RunImport(cmdArgs)
 
 	case "migrate":
-		fmt.Println("🔄 Running Pogonian migration engine (Coming in Step 22)...")
-		return nil
+		return RunMigrate(cmdArgs)
 
 	case "ai":
-		fmt.Println("🧠 Pogonian AI Context Engine (Coming in Step 20)...")
-		return nil
+		return RunAI(cmdArgs)
 
 	case "security":
-		fmt.Println("🛡️  Pogonian Security Audit (Coming in Step 21)...")
+		fmt.Println("🛡️  Pogonian Security Audit (Coming in Phase 11)...")
 		return nil
 
 	default:
