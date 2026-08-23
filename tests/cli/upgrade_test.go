@@ -16,17 +16,17 @@ func TestCLI_UpgradeCheckAndCompatibility(t *testing.T) {
 
 	projectDir := app.AppPath()
 
-	// 1. Test pogn upgrade --check
-	out, err := app.RunCLI("upgrade", "--check", projectDir)
+	// 1. Test pogn version -list
+	out, err := app.RunCLI("version", "-list", projectDir)
 	if err != nil {
-		t.Fatalf("pogn upgrade --check failed: %v\nOutput: %s", err, out)
+		t.Fatalf("pogn version -list failed: %v\nOutput: %s", err, out)
 	}
 
-	if !strings.Contains(out, "Pogonian Version Compatibility & Upgrade Inspector") {
-		t.Errorf("Expected compatibility inspector header in output:\n%s", out)
+	if !strings.Contains(out, "Pogonian Version History & Compatibility Matrix") {
+		t.Errorf("Expected version history header in output:\n%s", out)
 	}
-	if !strings.Contains(out, "Available Upgrade Targets & Compatibility Matrix") {
-		t.Errorf("Expected compatibility matrix in output:\n%s", out)
+	if !strings.Contains(out, "max upgradable") {
+		t.Errorf("Expected '(max upgradable)' in output:\n%s", out)
 	}
 	if !strings.Contains(out, "0.2.0") {
 		t.Errorf("Expected version 0.2.0 listed in available versions")

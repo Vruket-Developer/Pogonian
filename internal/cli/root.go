@@ -32,9 +32,8 @@ func Run(args []string) error {
 		}
 		return RunCreate(opts)
 
-	case "version", "-v", "--version", "--v", "-V":
-		fmt.Printf("Pogonian CLI v%s\n", Version)
-		return nil
+	case "version", "-v", "--version", "--v", "-V", "versions":
+		return RunVersion(cmdArgs)
 
 	case "help", "-h", "--help":
 		PrintHelp()
@@ -181,7 +180,7 @@ func PrintHelp() {
 	fmt.Println()
 	fmt.Println("\x1b[1mFLAGS:\x1b[0m")
 	fmt.Println("  -h, --help             Show help documentation")
-	fmt.Println("  -v, --version, --v     Show Pogonian version")
+	fmt.Println("  -v, --version, --v     Show Pogonian version (use 'pogn version -list' to see all versions)")
 	fmt.Println()
 }
 

@@ -32,17 +32,32 @@ type FrameworkRelease struct {
 	DeprecatedAPIs  []string       `json:"deprecated_apis"`
 }
 
-// AvailableReleases lists all known Pogonian releases and LTS versions.
+// AvailableReleases lists all Pogonian releases in descending order (latest on top).
 var AvailableReleases = []FrameworkRelease{
 	{
-		Version:      "0.1.0",
-		Channel:      ChannelStable,
-		ReleaseDate:  "2026-06-01",
-		MinGoVersion: "1.21",
+		Version:      "2.0.0",
+		Channel:      ChannelPreview,
+		ReleaseDate:  "2027-01-10 (Future)",
+		MinGoVersion: "1.23",
 		NewFeatures: []string{
-			"Initial modular-monolith 5-tier architecture",
-			"SQLite WAL mode integration",
-			"In-page DevTools HUD",
+			"Full WebAssembly client streaming runtime",
+			"Distributed actor-based state replication",
+			"Autonomous AI agent orchestration pipelines",
+		},
+		BreakingChanges: []string{
+			"Requires Go 1.23+ toolchain",
+			"App.ai schema v2.0 with semantic graph contracts",
+		},
+	},
+	{
+		Version:      "1.0.0-LTS",
+		Channel:      ChannelLTS,
+		ReleaseDate:  "2026-10-15 (Upcoming)",
+		MinGoVersion: "1.22",
+		NewFeatures: []string{
+			"Long-term support enterprise API guarantees",
+			"Distributed session stores with Redis & Postgres",
+			"Multi-region deployment and zero-downtime rolling compiler",
 		},
 	},
 	{
@@ -67,31 +82,131 @@ var AvailableReleases = []FrameworkRelease{
 		},
 	},
 	{
-		Version:      "1.0.0-LTS",
-		Channel:      ChannelLTS,
-		ReleaseDate:  "2026-10-15 (Upcoming)",
-		MinGoVersion: "1.22",
+		Version:      "0.1.0",
+		Channel:      ChannelStable,
+		ReleaseDate:  "2026-06-01",
+		MinGoVersion: "1.21",
 		NewFeatures: []string{
-			"Long-term support enterprise API guarantees",
-			"Distributed session stores with Redis & Postgres",
-			"Multi-region deployment and zero-downtime rolling compiler",
+			"Initial modular-monolith 5-tier architecture",
+			"SQLite WAL mode integration",
+			"In-page DevTools HUD",
 		},
 	},
-	{
-		Version:      "2.0.0",
-		Channel:      ChannelPreview,
-		ReleaseDate:  "2027-01-10 (Future)",
-		MinGoVersion: "1.23",
-		NewFeatures: []string{
-			"Full WebAssembly client streaming runtime",
-			"Distributed actor-based state replication",
-			"Autonomous AI agent orchestration pipelines",
-		},
-		BreakingChanges: []string{
-			"Requires Go 1.23+ toolchain",
-			"App.ai schema v2.0 with semantic graph contracts",
-		},
-	},
+}
+
+// RunVersion handles `pogn version`, `pogn version -list`, `pogn version --list`.
+func RunVersion(args []string) error {
+	for _, arg := range args {
+		if arg == "-list" || arg == "--list" || arg == "-l" || arg == "list" {
+			projectDir := "."
+			if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+				projectDir = args[1]
+			}
+			return RunVersionList(projectDir)
+		}
+	}
+
+	fmt.Printf("Pogonian CLI v%s\n", Version)
+	return nil
+}
+
+// RunVersionList displays all Pogonian versions till date (newest on top), highlighting Current, Latest, and (max upgradable).
+func RunVersionList(projectDir string) error {
+	absDir, _ := filepath.Abs(projectDir)
+	currentVersion := Version
+	cfgPath := filepath.Join(absDir, "pogonian.yaml")
+	if _, err := os.Stat(cfgPath); err == nil {
+		if cfg, err := config.Load(absDir); err == nil && cfg.Version != "" {
+			currentVersion = cfg.Version
+		}
+	}
+
+	goVer := runtime.Version()
+	maxUpgradable := findMaxUpgradableVersion()
+
+	fmt.Println()
+	fmt.Printf("📜 \x1b[1;36mPogonian Version History & Compatibility Matrix\x1b[0m\n")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("  Current Project Version: \x1b[1;33mv%s\x1b[0m\n", currentVersion)
+	fmt.Printf("  Active CLI Binary:       \x1b[1;32mv%s\x1b[0m\n", Version)
+	fmt.Printf("  System Go Toolchain:     \x1b[1m%s\x1b[0m\n", goVer)
+	fmt.Printf("  Max Upgradable Version:  \x1b[1;35mv%s\x1b[0m \x1b[1;33m(max upgradable)\x1b[0m\n", maxUpgradable)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
+	for _, rel := range AvailableReleases {
+		isCurrent := rel.Version == currentVersion
+		isLatest := rel.Channel == ChannelLatest
+		isMaxUpgradable := rel.Version == maxUpgradable
+
+		var tags []string
+		if isLatest {
+			tags = append(tags, "\x1b[1;32m[Latest]\x1b[0m")
+		}
+		if isCurrent {
+			tags = append(tags, "\x1b[1;36m[Current]\x1b[0m")
+		}
+		if isMaxUpgradable {
+			tags = append(tags, "\x1b[1;33m(max upgradable)\x1b[0m")
+		}
+
+		tagStr := strings.Join(tags, " ")
+		if tagStr != "" {
+			tagStr = " " + tagStr
+		}
+
+		compatStatus := "\x1b[1;32m✓ Compatible\x1b[0m"
+		if !isToolchainCompatible(rel.MinGoVersion) {
+			compatStatus = fmt.Sprintf("\x1b[1;31m❌ Incompatible (Requires Go %s+)\x1b[0m", rel.MinGoVersion)
+		}
+
+		fmt.Printf("  • \x1b[1;37mv%-10s\x1b[0m [%-10s] — %-12s %s%s\n", rel.Version, rel.Channel, rel.ReleaseDate, compatStatus, tagStr)
+		fmt.Printf("    \x1b[1;30m↳ Requires Go: %s+ | Runtime: Pogonian %s\x1b[0m\n", rel.MinGoVersion, rel.Version)
+
+		if len(rel.NewFeatures) > 0 {
+			fmt.Printf("    \x1b[1;32m↳ Features:\x1b[0m %s\n", strings.Join(rel.NewFeatures, "; "))
+		}
+		if len(rel.BreakingChanges) > 0 {
+			fmt.Printf("    \x1b[1;31m↳ Breaking Changes:\x1b[0m %s\n", strings.Join(rel.BreakingChanges, "; "))
+		}
+		if len(rel.DeprecatedAPIs) > 0 {
+			fmt.Printf("    \x1b[1;33m↳ Deprecations:\x1b[0m %s\n", strings.Join(rel.DeprecatedAPIs, "; "))
+		}
+
+		fmt.Println()
+	}
+
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	if currentVersion == maxUpgradable {
+		fmt.Printf("  ✨ \x1b[1;32mYour project is already at the max upgradable version (v%s)!\x1b[0m\n", currentVersion)
+	} else {
+		fmt.Printf("  🚀 \x1b[1;33mTo upgrade your project to v%s (max upgradable):\x1b[0m\n", maxUpgradable)
+		fmt.Printf("     \x1b[1;32mpogn upgrade --target=%s\x1b[0m\n", maxUpgradable)
+	}
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
+	return nil
+}
+
+func findMaxUpgradableVersion() string {
+	for _, rel := range AvailableReleases {
+		if isToolchainCompatible(rel.MinGoVersion) {
+			return rel.Version
+		}
+	}
+	return Version
+}
+
+func isToolchainCompatible(minGo string) bool {
+	goVer := runtime.Version()
+	if strings.HasPrefix(goVer, "go") {
+		goVerNum := strings.TrimPrefix(goVer, "go")
+		if minGo > goVerNum && !strings.HasPrefix(goVerNum, minGo) {
+			return false
+		}
+	}
+	return true
 }
 
 // RunUpgrade executes `pogn upgrade` or `pogn upgrade --check` to verify compatibility before applying changes.
@@ -137,7 +252,7 @@ func RunUpgrade(args []string) error {
 
 	// If user ran `pogn upgrade --check` or `pogn upgrade --list`, show available versions and compatibility report
 	if checkOnly {
-		return displayAvailableVersionsReport(absDir, currentVersion)
+		return RunVersionList(absDir)
 	}
 
 	// Check if already at latest version
@@ -161,7 +276,7 @@ func RunUpgrade(args []string) error {
 	compatErr := verifySystemCompatibility(targetVersion)
 	if compatErr != nil {
 		fmt.Printf("❌ \x1b[1;31mCompatibility Check Failed:\x1b[0m %v\n\n", compatErr)
-		fmt.Printf("   \x1b[1;30mTo inspect version requirements, run: pogn upgrade --check\x1b[0m\n\n")
+		fmt.Printf("   \x1b[1;30mTo inspect version requirements, run: pogn version -list\x1b[0m\n\n")
 		return compatErr
 	}
 
@@ -254,74 +369,12 @@ func RunUpgrade(args []string) error {
 	return nil
 }
 
-func displayAvailableVersionsReport(projectDir, currentVersion string) error {
-	goVer := runtime.Version()
-
-	fmt.Println()
-	fmt.Printf("🔍 \x1b[1;36mPogonian Version Compatibility & Upgrade Inspector\x1b[0m\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("  Current Project Version: \x1b[1;33m%s\x1b[0m", currentVersion)
-	if currentVersion == Version {
-		fmt.Printf(" \x1b[1;32m[Latest]\x1b[0m\n")
-	} else {
-		fmt.Printf(" \x1b[1;31m(Update Available &rarr; v%s)\x1b[0m\n", Version)
-	}
-	fmt.Printf("  System Go Toolchain:     \x1b[1m%s\x1b[0m\n", goVer)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println()
-
-	fmt.Printf("  \x1b[1mAvailable Upgrade Targets & Compatibility Matrix:\x1b[0m\n\n")
-
-	for _, rel := range AvailableReleases {
-		isCurrent := rel.Version == currentVersion
-		statusText := "\x1b[1;32m✓ Compatible\x1b[0m"
-		if isCurrent {
-			statusText = "\x1b[1;30m(Installed Current)\x1b[0m"
-		}
-
-		fmt.Printf("  • \x1b[1;36mv%-10s\x1b[0m [%-10s] — %s  %s\n", rel.Version, rel.Channel, rel.ReleaseDate, statusText)
-		fmt.Printf("    \x1b[1;30m↳ Requires Go: %s+ | Runtime: Pogonian %s\x1b[0m\n", rel.MinGoVersion, rel.Version)
-
-		if len(rel.NewFeatures) > 0 {
-			fmt.Printf("    \x1b[1;32m↳ New:\x1b[0m %s\n", strings.Join(rel.NewFeatures, "; "))
-		}
-
-		if len(rel.BreakingChanges) > 0 {
-			fmt.Printf("    \x1b[1;31m↳ Breaking Changes:\x1b[0m %s\n", strings.Join(rel.BreakingChanges, "; "))
-		}
-
-		if len(rel.DeprecatedAPIs) > 0 {
-			fmt.Printf("    \x1b[1;33m↳ Deprecations:\x1b[0m %s\n", strings.Join(rel.DeprecatedAPIs, "; "))
-		}
-
-		fmt.Println()
-	}
-
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	if currentVersion == Version {
-		fmt.Printf("  Status: \x1b[1;32mYou are running the latest version (v%s)!\x1b[0m\n", currentVersion)
-	} else {
-		fmt.Printf("  Status: \x1b[1;33mUpdate available from v%s &rarr; v%s\x1b[0m\n", currentVersion, Version)
-		fmt.Println("  Run \x1b[1;32mpogn upgrade\x1b[0m to apply.")
-	}
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println()
-
-	return nil
-}
-
 func verifySystemCompatibility(targetVersion string) error {
 	for _, rel := range AvailableReleases {
 		if rel.Version == targetVersion {
-			// Check Go version
-			goVer := runtime.Version()
-			if strings.HasPrefix(goVer, "go") {
-				// e.g. "go1.22.0"
-				goVerNum := strings.TrimPrefix(goVer, "go")
-				if rel.MinGoVersion > goVerNum && !strings.HasPrefix(goVerNum, rel.MinGoVersion) {
-					return fmt.Errorf("target version v%s requires Go %s+, but current toolchain is %s",
-						targetVersion, rel.MinGoVersion, goVer)
-				}
+			if !isToolchainCompatible(rel.MinGoVersion) {
+				return fmt.Errorf("target version v%s requires Go %s+, but current toolchain is %s",
+					targetVersion, rel.MinGoVersion, runtime.Version())
 			}
 			return nil
 		}
