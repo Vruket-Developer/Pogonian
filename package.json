@@ -1,0 +1,25 @@
+{
+  "name": "pogonian",
+  "version": "0.1.0",
+  "description": "An AI-native, full-stack web framework and application migration platform built around HTML, Go, and architecture-aware AI.",
+  "main": "bin/pogn-node-shim.js",
+  "bin": {
+    "pogn": "./bin/pogn-node-shim.js",
+    "pogonian": "./bin/pogn-node-shim.js"
+  },
+  "scripts": {
+    "build": "make build",
+    "test": "make test",
+    "dev": "make dev"
+  },
+  "keywords": [
+    "pogonian",
+    "web-framework",
+    "golang",
+    "html-first",
+    "spa-runtime",
+    "ai-native"
+  ],
+  "author": "Vruket-Developer",
+  "license": "MIT"
+}

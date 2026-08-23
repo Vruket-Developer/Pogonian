@@ -40,21 +40,17 @@ func Run(args []string) error {
 		PrintHelp()
 		return nil
 
-	case "dev":
-		fmt.Println("⚡ Starting Pogonian development server (Coming in Step 08)...")
-		return nil
+	case "dev", "run":
+		return RunDev(cmdArgs)
 
 	case "build":
-		fmt.Println("📦 Compiling Pogonian application (Coming in Step 22)...")
-		return nil
+		return RunBuild(cmdArgs)
 
-	case "check":
-		fmt.Println("🔍 Running Pogonian architecture and route validator (Coming in Step 18)...")
-		return nil
+	case "check", "lint":
+		return RunCheck(cmdArgs)
 
 	case "inspect":
-		fmt.Println("🔎 Inspecting project architecture and routes (Coming in Step 17)...")
-		return nil
+		return RunCheck(cmdArgs)
 
 	case "analyze":
 		fmt.Println("📊 Analyzing project dependency graph (Coming in Step 17)...")
