@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -90,12 +91,14 @@ func (r *Renderer) PrecompileAll(routes []*router.Route) error {
 }
 
 func (r *Renderer) precompileRoute(route *router.Route) error {
+	knownComps := r.discoverKnownComponents()
+
 	pageBytes, err := os.ReadFile(route.PagePath)
 	if err != nil {
 		return fmt.Errorf("failed to read page %s: %w", route.PagePath, err)
 	}
 
-	rawPage := r.preprocessComponentTags(string(pageBytes))
+	rawPage := r.preprocessComponentTags(string(pageBytes), knownComps)
 	pageTmpl := template.New("page").Funcs(r.customFuncs)
 	pageTmpl = r.loadComponents(pageTmpl)
 	pageTmpl, err = pageTmpl.Parse(rawPage)
@@ -110,7 +113,7 @@ func (r *Renderer) precompileRoute(route *router.Route) error {
 			return fmt.Errorf("failed to read layout %s: %w", layoutPath, err)
 		}
 
-		rawLayout := r.preprocessComponentTags(string(layoutBytes))
+		rawLayout := r.preprocessComponentTags(string(layoutBytes), knownComps)
 		lt := template.New(filepath.Base(layoutPath)).Funcs(r.customFuncs)
 		lt = r.loadComponents(lt)
 		lt, err = lt.Parse(rawLayout)
@@ -155,12 +158,14 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		}
 	}
 
+	knownComps := r.discoverKnownComponents()
+
 	pageBytes, err := os.ReadFile(route.PagePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read page %s: %w", route.PagePath, err)
 	}
 
-	rawPage := r.preprocessComponentTags(string(pageBytes))
+	rawPage := r.preprocessComponentTags(string(pageBytes), knownComps)
 	pageTmpl := template.New("page").Funcs(r.customFuncs)
 	pageTmpl = r.loadComponents(pageTmpl)
 	pageTmpl, err = pageTmpl.Parse(rawPage)
@@ -182,7 +187,7 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 			return nil, fmt.Errorf("failed to read layout %s: %w", layoutPath, err)
 		}
 
-		rawLayout := r.preprocessComponentTags(string(layoutBytes))
+		rawLayout := r.preprocessComponentTags(string(layoutBytes), knownComps)
 		layoutTmpl := template.New(filepath.Base(layoutPath)).Funcs(r.customFuncs)
 		layoutTmpl = r.loadComponents(layoutTmpl)
 		layoutTmpl, err = layoutTmpl.Parse(rawLayout)
@@ -229,23 +234,38 @@ func (r *Renderer) executeCached(cached *CachedTemplate, ctx RenderContext) ([]b
 
 var pognTagRegex = regexp.MustCompile(`(?i)<(?:pogn:|component:)([a-zA-Z0-9_\-]+)\s*(?:/>|></(?:pogn:|component:)[a-zA-Z0-9_\-]+>)`)
 var compNameTagRegex = regexp.MustCompile(`(?i)<component\s+name=["']([a-zA-Z0-9_\-]+)["']\s*(?:/>|></component>)`)
+var selfClosingTagRegex = regexp.MustCompile(`<([a-zA-Z0-9_\-]+)\s*/>`)
 var customElementRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9_]*)\s*(?:/>|></[A-Z][a-zA-Z0-9_]*>)`)
 
-// preprocessComponentTags automatically expands tags like <pogn:footer />, <component name="footer" />, and <Footer /> into {{ template "footer" . }}
-func (r *Renderer) preprocessComponentTags(html string) string {
+// preprocessComponentTags automatically expands tags like <footer />, <Footer />, <pogn:footer />, and <component name="footer" /> into {{ template "footer" . }}
+func (r *Renderer) preprocessComponentTags(html string, knownComponents map[string]bool) string {
 	// 1. Expand <pogn:footer /> or <component:footer />
 	html = pognTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
 
 	// 2. Expand <component name="footer" />
 	html = compNameTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
 
-	// 3. Expand <Footer /> or <Header /> (PascalCase component tags)
+	// 3. Expand self-closing HTML tags like <footer />, <header />, <sidebar /> when component exists
+	html = selfClosingTagRegex.ReplaceAllStringFunc(html, func(match string) string {
+		submatches := selfClosingTagRegex.FindStringSubmatch(match)
+		if len(submatches) > 1 {
+			tagName := strings.ToLower(submatches[1])
+			if knownComponents[tagName] || tagName == "footer" || tagName == "header" || tagName == "sidebar" {
+				return fmt.Sprintf(`{{ template "%s" . }}`, tagName)
+			}
+		}
+		return match
+	})
+
+	// 4. Expand PascalCase <Footer /> or <Header /> or <Footer></Footer>
 	html = customElementRegex.ReplaceAllStringFunc(html, func(match string) string {
 		submatches := customElementRegex.FindStringSubmatch(match)
 		if len(submatches) > 1 {
 			tagName := submatches[1]
 			lowerName := strings.ToLower(tagName)
-			return fmt.Sprintf(`{{ template "%s" . }}`, lowerName)
+			if knownComponents[lowerName] || lowerName == "footer" || lowerName == "header" || lowerName == "sidebar" {
+				return fmt.Sprintf(`{{ template "%s" . }}`, lowerName)
+			}
 		}
 		return match
 	})
@@ -253,28 +273,86 @@ func (r *Renderer) preprocessComponentTags(html string) string {
 	return html
 }
 
-func (r *Renderer) loadComponents(t *template.Template) *template.Template {
-	compDir := filepath.Join(r.BaseDir, "components")
-	entries, err := os.ReadDir(compDir)
-	if err != nil {
-		return t
+// discoverKnownComponents discovers all component names across app/components, root components/, and module/ folders.
+func (r *Renderer) discoverKnownComponents() map[string]bool {
+	comps := make(map[string]bool)
+
+	dirsToScan := []string{
+		filepath.Join(r.BaseDir, "components"),
+		filepath.Join(filepath.Dir(r.BaseDir), "components"),
+		filepath.Join(r.BaseDir, "components", "module"),
+		filepath.Join(filepath.Dir(r.BaseDir), "components", "module"),
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".html") {
-			path := filepath.Join(compDir, entry.Name())
-			data, err := os.ReadFile(path)
-			if err == nil {
-				t, _ = t.Parse(string(data))
-				relName := "components/" + entry.Name()
-				shortName := strings.TrimSuffix(entry.Name(), ".html")
-				lowerShort := strings.ToLower(shortName)
-				t, _ = t.New(relName).Parse(string(data))
-				t, _ = t.New(shortName).Parse(string(data))
-				t, _ = t.New(lowerShort).Parse(string(data))
+	for _, d := range dirsToScan {
+		_ = filepath.WalkDir(d, func(path string, entry fs.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() && strings.HasSuffix(entry.Name(), ".html") {
+				base := strings.TrimSuffix(strings.ToLower(entry.Name()), ".html")
+				comps[base] = true
 			}
-		}
+			return nil
+		})
 	}
+
+	return comps
+}
+
+// loadComponents imports and registers component templates from /app/components/, /components/, and subfolders like /module/.
+func (r *Renderer) loadComponents(t *template.Template) *template.Template {
+	dirsToScan := []string{
+		filepath.Join(r.BaseDir, "components"),
+		filepath.Join(filepath.Dir(r.BaseDir), "components"),
+	}
+
+	visited := make(map[string]bool)
+
+	for _, compDir := range dirsToScan {
+		if _, err := os.Stat(compDir); os.IsNotExist(err) {
+			continue
+		}
+
+		_ = filepath.WalkDir(compDir, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), ".html") {
+				return nil
+			}
+
+			if visited[path] {
+				return nil
+			}
+			visited[path] = true
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+
+			content := string(data)
+			rel, _ := filepath.Rel(compDir, path)
+			relUnix := filepath.ToSlash(rel)
+
+			shortName := strings.TrimSuffix(entry.Name(), ".html")
+			lowerShort := strings.ToLower(shortName)
+
+			// Parse base template
+			t, _ = t.Parse(content)
+
+			// Register aliases:
+			// 1. "footer"
+			t, _ = t.New(lowerShort).Parse(content)
+			t, _ = t.New(shortName).Parse(content)
+
+			// 2. "components/footer.html" or "components/module/footer.html"
+			t, _ = t.New("components/" + relUnix).Parse(content)
+
+			// 3. "module/footer" or "module/footer.html"
+			relNoExt := strings.TrimSuffix(relUnix, ".html")
+			t, _ = t.New(relUnix).Parse(content)
+			t, _ = t.New(relNoExt).Parse(content)
+
+			return nil
+		})
+	}
+
 	return t
 }
 

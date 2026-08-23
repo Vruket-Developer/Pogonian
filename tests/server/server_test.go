@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -117,3 +119,43 @@ func TestServer_ServeApp(t *testing.T) {
 
 	fmt.Println("✓ All HTTP server endpoints and rendering verified successfully!")
 }
+
+func TestServer_ComponentTagAutoExpansionAndMultiPath(t *testing.T) {
+	app := harness.NewTestRunner(t, "comp-expand-test")
+	err := app.CreateApp()
+	if err != nil {
+		t.Fatalf("Failed to create test app: %v", err)
+	}
+
+	projectDir := app.AppPath()
+
+	// 1. Create a component in /components/module/footer.html
+	rootModuleCompDir := filepath.Join(projectDir, "components", "module")
+	_ = os.MkdirAll(rootModuleCompDir, 0755)
+	_ = os.WriteFile(filepath.Join(rootModuleCompDir, "footer.html"), []byte(`<footer class="my-custom-footer"><p>&copy; 2026 Pogonian Framework</p></footer>`), 0644)
+
+	// 2. Put <footer /> tag into app/about/page.html
+	aboutPage := filepath.Join(projectDir, "app", "about", "page.html")
+	_ = os.WriteFile(aboutPage, []byte(`<h1>About Us</h1><footer />`), 0644)
+
+	srv, err := server.New(projectDir, false)
+	if err != nil {
+		t.Fatalf("Failed to initialize server: %v", err)
+	}
+
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/about")
+	if err != nil {
+		t.Fatalf("GET /about failed: %v", err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "my-custom-footer") {
+		t.Errorf("Expected <footer /> to expand to footer component content from components/module/footer.html, got:\n%s", bodyStr)
+	}
+}
+
