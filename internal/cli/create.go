@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"pogonian/internal/config"
+	"pogonian/internal/security"
 	"pogonian/templates"
 )
 
@@ -162,6 +163,11 @@ generator: "pogn create"
 	// Generate .env and .env.example with cryptographically secure secret keys
 	if _, err := config.EnsureEnvFile(absPath, opts.Name); err == nil {
 		fmt.Printf("  ✓ Created .env (with cryptographic APP_KEY) & .env.example\n")
+	}
+
+	// Generate .pogonian/security/rules.yaml for security policy configuration
+	if _, err := security.EnsureSecurityDirectory(absPath); err == nil {
+		fmt.Printf("  ✓ Created .pogonian/security/rules.yaml (security policy config)\n")
 	}
 
 	printSuccessMessage(opts.Name, targetDir)

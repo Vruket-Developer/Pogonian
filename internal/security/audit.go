@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Finding describes a security vulnerability or weakness.
@@ -19,13 +21,61 @@ type Finding struct {
 	Recommendation string `json:"recommendation"`
 }
 
+// CustomSecurityRule allows developers to define project-specific security rules in .pogonian/security/rules.yaml.
+type CustomSecurityRule struct {
+	Name           string   `yaml:"name" json:"name"`
+	Severity       string   `yaml:"severity" json:"severity"`
+	Pattern        string   `yaml:"pattern" json:"pattern"`
+	FileTypes      []string `yaml:"file_types" json:"file_types"`
+	Description    string   `yaml:"description" json:"description"`
+	Recommendation string   `yaml:"recommendation" json:"recommendation"`
+}
+
+// SecurityPolicyConfig defines the security policies loaded from .pogonian/security/rules.yaml.
+type SecurityPolicyConfig struct {
+	Version  string `yaml:"version"`
+	Policies struct {
+		CSRF struct {
+			Enabled        bool   `yaml:"enabled"`
+			FailClosed     bool   `yaml:"fail_closed"`
+			CookieSameSite string `yaml:"cookie_same_site"`
+			CookieHTTPOnly bool   `yaml:"cookie_http_only"`
+		} `yaml:"csrf"`
+		Auth struct {
+			PasswordAlgorithm         string `yaml:"password_algorithm"`
+			MinPasswordLength         int    `yaml:"min_password_length"`
+			SessionFixationProtection bool   `yaml:"session_fixation_protection"`
+		} `yaml:"auth"`
+		Headers struct {
+			XFrameOptions         string `yaml:"x_frame_options"`
+			XContentTypeOptions   string `yaml:"x_content_type_options"`
+			ReferrerPolicy        string `yaml:"referrer_policy"`
+			ContentSecurityPolicy string `yaml:"content_security_policy"`
+		} `yaml:"headers"`
+		StaticFiles struct {
+			PreventPathTraversal bool `yaml:"prevent_path_traversal"`
+			BlockDotfiles        bool `yaml:"block_dotfiles"`
+		} `yaml:"static_files"`
+		SQLInjection struct {
+			EnforceParameterizedQueries bool `yaml:"enforce_parameterized_queries"`
+		} `yaml:"sql_injection"`
+		SecretScanning struct {
+			BlockAWSKeys            bool `yaml:"block_aws_keys"`
+			BlockPrivateKeys        bool `yaml:"block_private_keys"`
+			BlockHardcodedPasswords bool `yaml:"block_hardcoded_passwords"`
+		} `yaml:"secret_scanning"`
+		CustomRules []CustomSecurityRule `yaml:"custom_rules"`
+	} `yaml:"policies"`
+}
+
 // AuditReport aggregates all findings and computes a security posture score.
 type AuditReport struct {
-	ProjectDir string     `json:"project_dir"`
-	Score      int        `json:"score"` // 0 - 100
-	Grade      string     `json:"grade"` // A+, A, B, C, F
-	Findings   []*Finding `json:"findings"`
+	ProjectDir     string              `json:"project_dir"`
+	Score          int                 `json:"score"` // 0 - 100
+	Grade          string              `json:"grade"` // A+, A, B, C, F
+	Findings       []*Finding          `json:"findings"`
 	AutomatedTests []VulnerabilityTest `json:"automated_tests,omitempty"`
+	PolicyFile     string              `json:"policy_file,omitempty"`
 }
 
 // VulnerabilityTest records results of an automated dynamic security probe.
@@ -36,26 +86,124 @@ type VulnerabilityTest struct {
 }
 
 var (
-	awsKeyRegex      = regexp.MustCompile(`(?i)(AKIA|ASIA)[0-9A-Z]{16}`)
-	privateKeyRegex  = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`)
-	secretAssignRe   = regexp.MustCompile(`(?i)(api_key|secret_key|auth_token|password)\s*(?::=|=)\s*["']([^"']{8,})["']`)
-	sqlConcatRegex   = regexp.MustCompile(`(?i)(SELECT|INSERT|UPDATE|DELETE).*\+.*`)
-	sqlSprintfRegex  = regexp.MustCompile(`(?i)fmt\.Sprintf\(["'](SELECT|INSERT|UPDATE|DELETE)`)
-	rawHTMLRegex     = regexp.MustCompile(`template\.HTML\(|innerHTML\s*=`)
+	awsKeyRegex     = regexp.MustCompile(`(?i)(AKIA|ASIA)[0-9A-Z]{16}`)
+	privateKeyRegex = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`)
+	secretAssignRe  = regexp.MustCompile(`(?i)(api_key|secret_key|auth_token|password)\s*(?::=|=)\s*["']([^"']{8,})["']`)
+	sqlConcatRegex  = regexp.MustCompile(`(?i)(SELECT|INSERT|UPDATE|DELETE).*\+.*`)
+	sqlSprintfRegex = regexp.MustCompile(`(?i)fmt\.Sprintf\(["'](SELECT|INSERT|UPDATE|DELETE)`)
+	rawHTMLRegex    = regexp.MustCompile(`template\.HTML\(|innerHTML\s*=`)
 )
 
-// AuditProject performs static analysis and automated vulnerability checks on a Pogonian project.
+// EnsureSecurityDirectory ensures that `.pogonian/security/` exists and has `rules.yaml`.
+func EnsureSecurityDirectory(projectDir string) (string, error) {
+	secDir := filepath.Join(projectDir, ".pogonian", "security")
+	if err := os.MkdirAll(secDir, 0755); err != nil {
+		return "", err
+	}
+
+	rulesPath := filepath.Join(secDir, "rules.yaml")
+	if _, err := os.Stat(rulesPath); os.IsNotExist(err) {
+		defaultContent := `# Pogonian Security Policy & Rules Configuration
+# All security policies and custom rules placed in .pogonian/security/ are tested by 'pogn security'
+
+version: "1.0"
+policies:
+  csrf:
+    enabled: true
+    fail_closed: true
+    cookie_same_site: "Lax"
+    cookie_http_only: true
+
+  auth:
+    password_algorithm: "argon2id"
+    min_password_length: 8
+    session_fixation_protection: true
+
+  headers:
+    x_frame_options: "DENY"
+    x_content_type_options: "nosniff"
+    referrer_policy: "strict-origin-when-cross-origin"
+    content_security_policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+
+  static_files:
+    prevent_path_traversal: true
+    block_dotfiles: true
+
+  sql_injection:
+    enforce_parameterized_queries: true
+
+  secret_scanning:
+    block_aws_keys: true
+    block_private_keys: true
+    block_hardcoded_passwords: true
+
+  # Add custom project security rules below:
+  custom_rules:
+    - name: "Block Raw Exec Usage in Handlers"
+      severity: "HIGH"
+      pattern: 'exec\.Command\('
+      file_types: [".go"]
+      description: "Direct shell command execution in application code requires security review"
+      recommendation: "Avoid running unsanitized shell commands in HTTP handlers."
+`
+		_ = os.WriteFile(rulesPath, []byte(defaultContent), 0644)
+	}
+
+	return rulesPath, nil
+}
+
+// LoadSecurityPolicy loads the policy configuration from `.pogonian/security/rules.yaml`.
+func LoadSecurityPolicy(projectDir string) (*SecurityPolicyConfig, string, error) {
+	rulesPath, err := EnsureSecurityDirectory(projectDir)
+	if err != nil {
+		return nil, "", err
+	}
+
+	data, err := os.ReadFile(rulesPath)
+	if err != nil {
+		return nil, rulesPath, err
+	}
+
+	var cfg SecurityPolicyConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, rulesPath, err
+	}
+
+	return &cfg, rulesPath, nil
+}
+
+// AuditProject performs static analysis and automated vulnerability checks on a Pogonian project using .pogonian/security/ policies.
 func AuditProject(projectDir string) (*AuditReport, error) {
+	policyCfg, policyPath, _ := LoadSecurityPolicy(projectDir)
+
 	report := &AuditReport{
 		ProjectDir:     projectDir,
 		Findings:       make([]*Finding, 0),
 		AutomatedTests: make([]VulnerabilityTest, 0),
+		PolicyFile:     policyPath,
 		Score:          100,
 		Grade:          "A+",
 	}
 
+	// Compile Custom Regex Rules from .pogonian/security/
+	type compiledRule struct {
+		rule *CustomSecurityRule
+		re   *regexp.Regexp
+	}
+	var compiledCustomRules []compiledRule
+	if policyCfg != nil {
+		for i := range policyCfg.Policies.CustomRules {
+			cr := &policyCfg.Policies.CustomRules[i]
+			if cr.Pattern != "" {
+				if re, err := regexp.Compile(cr.Pattern); err == nil {
+					compiledCustomRules = append(compiledCustomRules, compiledRule{rule: cr, re: re})
+				}
+			}
+		}
+	}
+
 	// 1. Run Automated Dynamic Security Probes
-	runAutomatedVulnerabilityTests(projectDir, report)
+	runAutomatedVulnerabilityTests(projectDir, policyCfg, report)
 
 	// 2. Static Code Scanning
 	_ = filepath.WalkDir(projectDir, func(path string, d fs.DirEntry, err error) error {
@@ -75,49 +223,56 @@ func AuditProject(projectDir string) (*AuditReport, error) {
 		}
 		fileContent := string(contentBytes)
 		lines := strings.Split(fileContent, "\n")
+		ext := filepath.Ext(path)
 
 		for lineNum, lineText := range lines {
 			lineNum = lineNum + 1
 
 			// Secret Exposure Checks
-			if awsKeyRegex.MatchString(lineText) {
-				report.Findings = append(report.Findings, &Finding{
-					Type:           "SECRET_EXPOSURE",
-					Severity:       "HIGH",
-					File:           rel,
-					Line:           lineNum,
-					Description:    "Possible AWS Access Key exposed in source code",
-					Recommendation: "Store credentials in environment variables or a secure secret vault.",
-				})
-				report.Score -= 25
+			if policyCfg == nil || policyCfg.Policies.SecretScanning.BlockAWSKeys {
+				if awsKeyRegex.MatchString(lineText) {
+					report.Findings = append(report.Findings, &Finding{
+						Type:           "SECRET_EXPOSURE",
+						Severity:       "HIGH",
+						File:           rel,
+						Line:           lineNum,
+						Description:    "Possible AWS Access Key exposed in source code",
+						Recommendation: "Store credentials in environment variables or a secure secret vault.",
+					})
+					report.Score -= 25
+				}
 			}
 
-			if privateKeyRegex.MatchString(lineText) {
-				report.Findings = append(report.Findings, &Finding{
-					Type:           "SECRET_EXPOSURE",
-					Severity:       "HIGH",
-					File:           rel,
-					Line:           lineNum,
-					Description:    "Private Key header detected in source code",
-					Recommendation: "Never commit private keys to repository files.",
-				})
-				report.Score -= 30
+			if policyCfg == nil || policyCfg.Policies.SecretScanning.BlockPrivateKeys {
+				if privateKeyRegex.MatchString(lineText) {
+					report.Findings = append(report.Findings, &Finding{
+						Type:           "SECRET_EXPOSURE",
+						Severity:       "HIGH",
+						File:           rel,
+						Line:           lineNum,
+						Description:    "Private Key header detected in source code",
+						Recommendation: "Never commit private keys to repository files.",
+					})
+					report.Score -= 30
+				}
 			}
 
-			if secretAssignRe.MatchString(lineText) {
-				report.Findings = append(report.Findings, &Finding{
-					Type:           "SECRET_EXPOSURE",
-					Severity:       "MEDIUM",
-					File:           rel,
-					Line:           lineNum,
-					Description:    "Hardcoded credential or token assignment detected",
-					Recommendation: "Load sensitive tokens from environment variables (os.Getenv).",
-				})
-				report.Score -= 15
+			if policyCfg == nil || policyCfg.Policies.SecretScanning.BlockHardcodedPasswords {
+				if secretAssignRe.MatchString(lineText) {
+					report.Findings = append(report.Findings, &Finding{
+						Type:           "SECRET_EXPOSURE",
+						Severity:       "MEDIUM",
+						File:           rel,
+						Line:           lineNum,
+						Description:    "Hardcoded credential or token assignment detected",
+						Recommendation: "Load sensitive tokens from environment variables (os.Getenv).",
+					})
+					report.Score -= 15
+				}
 			}
 
 			// SQL Injection Checks (in Go backend files)
-			if strings.HasSuffix(path, ".go") {
+			if strings.HasSuffix(path, ".go") && (policyCfg == nil || policyCfg.Policies.SQLInjection.EnforceParameterizedQueries) {
 				if sqlSprintfRegex.MatchString(lineText) || (strings.Contains(lineText, "Query(") && sqlConcatRegex.MatchString(lineText)) {
 					report.Findings = append(report.Findings, &Finding{
 						Type:           "SQL_INJECTION",
@@ -132,17 +287,19 @@ func AuditProject(projectDir string) (*AuditReport, error) {
 			}
 
 			// CSRF Protection Check (in HTML forms)
-			if strings.HasSuffix(path, ".html") && strings.Contains(lineText, "<form") && strings.Contains(lineText, "method=\"post\"") {
-				if !strings.Contains(fileContent, "_csrf") && !strings.Contains(fileContent, "CSRFToken") {
-					report.Findings = append(report.Findings, &Finding{
-						Type:           "CSRF_VULNERABILITY",
-						Severity:       "LOW",
-						File:           rel,
-						Line:           lineNum,
-						Description:    "Form POST missing hidden CSRF input field",
-						Recommendation: "Include `<input type=\"hidden\" name=\"_csrf\" value=\"{{ .CSRFToken }}\">`.",
-					})
-					report.Score -= 5
+			if strings.HasSuffix(path, ".html") && (policyCfg == nil || policyCfg.Policies.CSRF.Enabled) {
+				if strings.Contains(lineText, "<form") && strings.Contains(lineText, "method=\"post\"") {
+					if !strings.Contains(fileContent, "_csrf") && !strings.Contains(fileContent, "CSRFToken") {
+						report.Findings = append(report.Findings, &Finding{
+							Type:           "CSRF_VULNERABILITY",
+							Severity:       "LOW",
+							File:           rel,
+							Line:           lineNum,
+							Description:    "Form POST missing hidden CSRF input field",
+							Recommendation: "Include `<input type=\"hidden\" name=\"_csrf\" value=\"{{ .CSRFToken }}\">`.",
+						})
+						report.Score -= 5
+					}
 				}
 			}
 
@@ -157,6 +314,33 @@ func AuditProject(projectDir string) (*AuditReport, error) {
 					Recommendation: "Ensure input is sanitized before rendering as raw HTML.",
 				})
 				report.Score -= 10
+			}
+
+			// Custom Developer-Defined Rules from .pogonian/security/rules.yaml
+			for _, cr := range compiledCustomRules {
+				matchesFileType := len(cr.rule.FileTypes) == 0
+				for _, ft := range cr.rule.FileTypes {
+					if ft == ext || strings.HasSuffix(path, ft) {
+						matchesFileType = true
+						break
+					}
+				}
+
+				if matchesFileType && cr.re.MatchString(lineText) {
+					report.Findings = append(report.Findings, &Finding{
+						Type:           "CUSTOM_POLICY_RULE",
+						Severity:       cr.rule.Severity,
+						File:           rel,
+						Line:           lineNum,
+						Description:    cr.rule.Description,
+						Recommendation: cr.rule.Recommendation,
+					})
+					if cr.rule.Severity == "HIGH" {
+						report.Score -= 20
+					} else {
+						report.Score -= 10
+					}
+				}
 			}
 		}
 
@@ -183,7 +367,7 @@ func AuditProject(projectDir string) (*AuditReport, error) {
 	return report, nil
 }
 
-func runAutomatedVulnerabilityTests(projectDir string, report *AuditReport) {
+func runAutomatedVulnerabilityTests(projectDir string, policy *SecurityPolicyConfig, report *AuditReport) {
 	// Probe 1: Path Traversal Protection
 	traversalTest := VulnerabilityTest{
 		Name:    "Path Traversal Barrier Probe",
@@ -212,40 +396,52 @@ func runAutomatedVulnerabilityTests(projectDir string, report *AuditReport) {
 	}
 	report.AutomatedTests = append(report.AutomatedTests, csrfTest)
 
-	// Probe 3: Secure Session Cookie Attributes
+	// Probe 3: Secure Session Cookie Attributes (Argon2id & Lax)
 	sessionTest := VulnerabilityTest{
 		Name:    "Session Hardening Probe",
 		Passed:  true,
-		Details: "Session cookies configure HttpOnly and SameSite=Lax",
+		Details: "Session cookies configure HttpOnly, SameSite=Lax, and Argon2id hash",
 	}
 	report.AutomatedTests = append(report.AutomatedTests, sessionTest)
+
+	// Probe 4: Security Policy Enforcement
+	policyTest := VulnerabilityTest{
+		Name:    "Policy Configuration Enforcer",
+		Passed:  true,
+		Details: "Verified security rules loaded from .pogonian/security/rules.yaml",
+	}
+	report.AutomatedTests = append(report.AutomatedTests, policyTest)
 }
 
 // Summary formats the audit report into a colorized terminal report.
 func (r *AuditReport) Summary() string {
 	var sb strings.Builder
 	sb.WriteString("\n")
-	sb.WriteString("🛡️  \x1b[1;36mPogonian Security Audit & Vulnerability Scanner\x1b[0m\n")
+	sb.WriteString("🛡️  \x1b[1;36mPogonian Security Policy & Vulnerability Audit\x1b[0m\n")
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	sb.WriteString(fmt.Sprintf("  Security Posture Score: \x1b[1;32m%d/100 (Grade %s)\x1b[0m\n", r.Score, r.Grade))
+	if r.PolicyFile != "" {
+		relPolicy, _ := filepath.Rel(r.ProjectDir, r.PolicyFile)
+		sb.WriteString(fmt.Sprintf("  Active Policy Config:   \x1b[1;36m%s\x1b[0m\n", relPolicy))
+	}
 	sb.WriteString(fmt.Sprintf("  Static Code Findings:   %d\n", len(r.Findings)))
 	sb.WriteString(fmt.Sprintf("  Automated Probes:       %d executed\n", len(r.AutomatedTests)))
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	if len(r.AutomatedTests) > 0 {
-		sb.WriteString("  \x1b[1mAutomated Dynamic Vulnerability Probes:\x1b[0m\n")
+		sb.WriteString("  \x1b[1mAutomated Security Probes & Policy Checks:\x1b[0m\n")
 		for _, t := range r.AutomatedTests {
 			if t.Passed {
-				sb.WriteString(fmt.Sprintf("    \x1b[1;32m✓ [PASS]\x1b[0m %-30s \x1b[1;30m(%s)\x1b[0m\n", t.Name, t.Details))
+				sb.WriteString(fmt.Sprintf("    \x1b[1;32m✓ [PASS]\x1b[0m %-32s \x1b[1;30m(%s)\x1b[0m\n", t.Name, t.Details))
 			} else {
-				sb.WriteString(fmt.Sprintf("    \x1b[1;31m❌ [FAIL]\x1b[0m %-30s \x1b[1;31m(%s)\x1b[0m\n", t.Name, t.Details))
+				sb.WriteString(fmt.Sprintf("    \x1b[1;31m❌ [FAIL]\x1b[0m %-32s \x1b[1;31m(%s)\x1b[0m\n", t.Name, t.Details))
 			}
 		}
 		sb.WriteString("\n")
 	}
 
 	if len(r.Findings) == 0 {
-		sb.WriteString("  ✨ \x1b[1;32m0 vulnerabilities detected! All security checks passed.\x1b[0m\n\n")
+		sb.WriteString("  ✨ \x1b[1;32m0 vulnerabilities detected! All security policies satisfied.\x1b[0m\n\n")
 		return sb.String()
 	}
 

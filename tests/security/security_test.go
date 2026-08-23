@@ -3,6 +3,7 @@ package security_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"pogonian/internal/security"
@@ -23,6 +24,57 @@ func TestSecurity_AuditCleanProject(t *testing.T) {
 
 	if report.Score < 90 {
 		t.Errorf("Expected high security score on default project, got %d", report.Score)
+	}
+
+	// Verify .pogonian/security/rules.yaml was created
+	secFile := filepath.Join(app.AppPath(), ".pogonian", "security", "rules.yaml")
+	if _, err := os.Stat(secFile); err != nil {
+		t.Errorf("Expected .pogonian/security/rules.yaml to exist at %s", secFile)
+	}
+}
+
+func TestSecurity_CustomRulesInPogonianSecurity(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Create .pogonian/security/rules.yaml with custom rule
+	secDir := filepath.Join(tempDir, ".pogonian", "security")
+	_ = os.MkdirAll(secDir, 0755)
+
+	customYAML := `version: "1.0"
+policies:
+  csrf:
+    enabled: true
+  auth:
+    password_algorithm: "argon2id"
+  custom_rules:
+    - name: "Disallow Unsafe Eval"
+      severity: "HIGH"
+      pattern: 'eval\('
+      file_types: [".js", ".html"]
+      description: "Direct eval() invocation is dangerous"
+      recommendation: "Use JSON.parse or safe parser."
+`
+	_ = os.WriteFile(filepath.Join(secDir, "rules.yaml"), []byte(customYAML), 0644)
+
+	// 2. Create file violating custom rule
+	appDir := filepath.Join(tempDir, "app")
+	_ = os.MkdirAll(appDir, 0755)
+	_ = os.WriteFile(filepath.Join(appDir, "calc.js"), []byte(`function run(x) { return eval(x); }`), 0644)
+
+	report, err := security.AuditProject(tempDir)
+	if err != nil {
+		t.Fatalf("Audit failed: %v", err)
+	}
+
+	foundCustom := false
+	for _, f := range report.Findings {
+		if f.Type == "CUSTOM_POLICY_RULE" && strings.Contains(f.Description, "eval()") {
+			foundCustom = true
+		}
+	}
+
+	if !foundCustom {
+		t.Errorf("Expected custom security rule from .pogonian/security/ to be triggered")
 	}
 }
 

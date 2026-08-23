@@ -9,6 +9,7 @@ import (
 
 	"pogonian/internal/ai"
 	"pogonian/internal/config"
+	"pogonian/internal/security"
 )
 
 // ReleaseChannel specifies the release stability channel.
@@ -357,6 +358,11 @@ func RunUpgrade(args []string) error {
 	// 4. Ensure .env has APP_KEY and SESSION_SECRET
 	if envPath, err := config.EnsureEnvFile(absDir, filepath.Base(absDir)); err == nil && envPath != "" {
 		fmt.Printf("  \x1b[1;32m✓ Verified:\x1b[0m Cryptographic secret keys in .env\n")
+	}
+
+	// 5. Ensure .pogonian/security/ policy directory and rules exist
+	if secPath, err := security.EnsureSecurityDirectory(absDir); err == nil && secPath != "" {
+		fmt.Printf("  \x1b[1;32m✓ Verified:\x1b[0m Security policies in .pogonian/security/rules.yaml\n")
 	}
 
 	fmt.Println()
