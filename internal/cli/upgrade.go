@@ -98,6 +98,7 @@ var AvailableReleases = []FrameworkRelease{
 func RunUpgrade(args []string) error {
 	checkOnly := false
 	dryRun := false
+	force := false
 	targetVersion := Version
 	projectDir := "."
 
@@ -108,6 +109,8 @@ func RunUpgrade(args []string) error {
 			checkOnly = true
 		case arg == "--dry-run" || arg == "-n":
 			dryRun = true
+		case arg == "--force" || arg == "-f":
+			force = true
 		case strings.HasPrefix(arg, "--target="):
 			targetVersion = strings.TrimPrefix(arg, "--target=")
 		case strings.HasPrefix(arg, "--version="):
@@ -137,6 +140,17 @@ func RunUpgrade(args []string) error {
 		return displayAvailableVersionsReport(absDir, currentVersion)
 	}
 
+	// Check if already at latest version
+	isLatest := currentVersion == targetVersion
+
+	if isLatest && !force && !dryRun {
+		fmt.Println()
+		fmt.Printf("✨ \x1b[1;32mProject is already at the latest version (v%s)!\x1b[0m\n", currentVersion)
+		fmt.Printf("   \x1b[1;30m↳ No upgrade needed.\x1b[0m\n")
+		fmt.Printf("   \x1b[1;30m↳ To force re-sync configuration and schemas, run: pogn upgrade --force\x1b[0m\n\n")
+		return nil
+	}
+
 	fmt.Println()
 	fmt.Printf("🔄 \x1b[1;36mPogonian Framework Upgrade Tool\x1b[0m\n")
 	fmt.Printf("   Current Project Version: \x1b[1m%s\x1b[0m\n", currentVersion)
@@ -153,7 +167,7 @@ func RunUpgrade(args []string) error {
 
 	if dryRun {
 		fmt.Println("🔍 \x1b[1;33m[Dry Run Mode] Previewing upgrade actions:\x1b[0m")
-		fmt.Printf("  • Would upgrade pogonian.yaml to v%s\n", targetVersion)
+		fmt.Printf("  • Would upgrade pogonian.yaml from v%s to v%s\n", currentVersion, targetVersion)
 		fmt.Printf("  • Would upgrade .pogonian/architecture/app.ai to schema v%s\n", ai.CurrentSpecVersion)
 		fmt.Printf("  • Would ensure migrations/ directory and first-class schema tracking\n")
 		fmt.Printf("  • Would verify APP_KEY and SESSION_SECRET in .env\n\n")
@@ -175,7 +189,7 @@ func RunUpgrade(args []string) error {
 				cfg.Environment = "development"
 				changed = true
 			}
-			if changed {
+			if changed || force {
 				if err := config.Save(absDir, cfg); err == nil {
 					fmt.Printf("  \x1b[1;32m✓ Upgraded:\x1b[0m pogonian.yaml to v%s (environment: %s)\n", targetVersion, cfg.Environment)
 					upgradedCount++
@@ -206,7 +220,7 @@ func RunUpgrade(args []string) error {
 				}
 				changed = true
 			}
-			if changed {
+			if changed || force {
 				if err := spec.Save(absDir); err == nil {
 					fmt.Printf("  \x1b[1;32m✓ Upgraded:\x1b[0m .pogonian/architecture/app.ai to schema v%s\n", ai.CurrentSpecVersion)
 					upgradedCount++
@@ -246,7 +260,12 @@ func displayAvailableVersionsReport(projectDir, currentVersion string) error {
 	fmt.Println()
 	fmt.Printf("🔍 \x1b[1;36mPogonian Version Compatibility & Upgrade Inspector\x1b[0m\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("  Current Project Version: \x1b[1;33m%s\x1b[0m\n", currentVersion)
+	fmt.Printf("  Current Project Version: \x1b[1;33m%s\x1b[0m", currentVersion)
+	if currentVersion == Version {
+		fmt.Printf(" \x1b[1;32m[Latest]\x1b[0m\n")
+	} else {
+		fmt.Printf(" \x1b[1;31m(Update Available &rarr; v%s)\x1b[0m\n", Version)
+	}
 	fmt.Printf("  System Go Toolchain:     \x1b[1m%s\x1b[0m\n", goVer)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
@@ -279,14 +298,12 @@ func displayAvailableVersionsReport(projectDir, currentVersion string) error {
 	}
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("  To upgrade your project to the latest version:")
-	fmt.Println("    \x1b[1;32mpogn upgrade\x1b[0m")
-	fmt.Println()
-	fmt.Println("  To upgrade to a specific target version:")
-	fmt.Println("    \x1b[1;32mpogn upgrade --target=0.2.0\x1b[0m")
-	fmt.Println()
-	fmt.Println("  To preview upgrade changes without writing files:")
-	fmt.Println("    \x1b[1;32mpogn upgrade --dry-run\x1b[0m")
+	if currentVersion == Version {
+		fmt.Printf("  Status: \x1b[1;32mYou are running the latest version (v%s)!\x1b[0m\n", currentVersion)
+	} else {
+		fmt.Printf("  Status: \x1b[1;33mUpdate available from v%s &rarr; v%s\x1b[0m\n", currentVersion, Version)
+		fmt.Println("  Run \x1b[1;32mpogn upgrade\x1b[0m to apply.")
+	}
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
