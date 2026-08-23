@@ -130,9 +130,10 @@
                 return;
             } else {
                 const formData = new FormData(form);
+                const urlParams = new URLSearchParams(formData);
                 res = await fetch(action, {
                     method: 'POST',
-                    body: formData,
+                    body: urlParams,
                     headers: {
                         'X-Pogonian-Request': 'true',
                         'Accept': 'text/html, application/json'

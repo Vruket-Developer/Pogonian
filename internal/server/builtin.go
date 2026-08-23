@@ -93,9 +93,8 @@ func (s *Server) setupBuiltinModules() {
 
 	// 3. Form Action POST for /products
 	s.RegisterAction("/products", func(w http.ResponseWriter, r *http.Request, params map[string]string) error {
-		if err := r.ParseForm(); err != nil {
-			return err
-		}
+		_ = r.ParseMultipartForm(32 << 20)
+		_ = r.ParseForm()
 
 		name := r.FormValue("name")
 		desc := r.FormValue("description")

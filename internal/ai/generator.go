@@ -199,9 +199,9 @@ func (h *Handler) HandleGet(r *http.Request, params map[string]string) (interfac
 
 // HandlePostAction handles form submissions.
 func (h *Handler) HandlePostAction(w http.ResponseWriter, r *http.Request, params map[string]string) error {
-	if err := r.ParseForm(); err != nil {
-		return err
-	}
+	_ = r.ParseMultipartForm(32 << 20)
+	_ = r.ParseForm()
+
 	title := r.FormValue("title")
 	content := r.FormValue("content")
 
