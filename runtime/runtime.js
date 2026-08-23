@@ -1,6 +1,8 @@
 /**
- * Pogonian Runtime (v0.2.0)
- * Zero-dependency SPA soft navigation, DOM patching, head reconciliation, and multipart form interception.
+ * Pogonian Runtime (v0.3.0)
+ * Architecture-aware SPA soft navigation, DOM patching, complete head reconciliation,
+ * script lifecycle execution, method spoofing (PUT/PATCH/DELETE), multipart form handling,
+ * and fail-closed CSRF token synchronization.
  */
 (() => {
     'use strict';
@@ -8,9 +10,9 @@
     if (window.__pogonian_runtime_loaded) return;
     window.__pogonian_runtime_loaded = true;
 
-    console.log("%c[Pogonian]%c Architecture-aware soft navigation runtime active", "color: #38bdf8; font-weight: bold;", "color: inherit;");
+    console.log("%c[Pogonian]%c Production-grade soft navigation runtime active", "color: #38bdf8; font-weight: bold;", "color: inherit;");
 
-    const ROOT_SELECTOR = '#pogn-root, main, [data-pogn-root]';
+    const ROOT_SELECTOR = '#pogn-root, main, [data-pogn-root], #app';
 
     const lifecycle = {
         beforeNavigate: [],
@@ -19,38 +21,104 @@
     };
 
     window.Pogonian = {
+        version: '0.3.0',
         onBeforeNavigate: (fn) => lifecycle.beforeNavigate.push(fn),
         onBeforeSwap: (fn) => lifecycle.beforeSwap.push(fn),
         onAfterNavigate: (fn) => lifecycle.afterNavigate.push(fn),
-        navigate: (url) => navigateTo(url, true)
+        navigate: (url) => navigateTo(url, true),
+        getCSRFToken: () => getCSRFToken()
     };
+
+    function getCSRFToken() {
+        // 1. From cookie
+        const match = document.cookie.match(new RegExp('(^|;\\s*)_pogn_csrf=([^;]+)'));
+        if (match) return decodeURIComponent(match[2]);
+
+        // 2. From hidden form field
+        const input = document.querySelector('input[name="_csrf"]');
+        if (input && input.value) return input.value;
+
+        // 3. From meta tag if present
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta && meta.content) return meta.content;
+
+        return '';
+    }
 
     function getRootElement(doc = document) {
         return doc.querySelector(ROOT_SELECTOR) || doc.body;
     }
 
     function executeScripts(container) {
-        container.querySelectorAll('script').forEach(oldScript => {
+        const scripts = Array.from(container.querySelectorAll('script'));
+        scripts.forEach(oldScript => {
             const newScript = document.createElement('script');
             Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-            newScript.appendChild(document.createTextNode(oldScript.innerHTML));
+            if (oldScript.src) {
+                // External script
+                newScript.src = oldScript.src;
+            } else {
+                // Inline script
+                newScript.textContent = oldScript.textContent;
+            }
             oldScript.parentNode.replaceChild(newScript, oldScript);
         });
     }
 
+    function reconcileHead(newDoc) {
+        // 1. Title
+        if (newDoc.title) {
+            document.title = newDoc.title;
+        }
+
+        // 2. Meta tags
+        newDoc.querySelectorAll('meta').forEach(newMeta => {
+            const name = newMeta.getAttribute('name');
+            const property = newMeta.getAttribute('property');
+            const httpEquiv = newMeta.getAttribute('http-equiv');
+
+            let selector = '';
+            if (name) selector = `meta[name="${name}"]`;
+            else if (property) selector = `meta[property="${property}"]`;
+            else if (httpEquiv) selector = `meta[http-equiv="${httpEquiv}"]`;
+
+            if (selector) {
+                const existing = document.head.querySelector(selector);
+                if (existing) {
+                    existing.setAttribute('content', newMeta.getAttribute('content') || '');
+                } else {
+                    document.head.appendChild(newMeta.cloneNode(true));
+                }
+            }
+        });
+
+        // 3. Stylesheets
+        newDoc.querySelectorAll('link[rel="stylesheet"]').forEach(newLink => {
+            const href = newLink.getAttribute('href');
+            if (href && !document.head.querySelector(`link[rel="stylesheet"][href="${href}"]`)) {
+                document.head.appendChild(newLink.cloneNode(true));
+            }
+        });
+    }
+
     async function navigateTo(url, pushState = true) {
-        // Lifecycle: beforeNavigate
+        // Lifecycle: beforeNavigate (cancellable)
         const cancelEvent = new CustomEvent('pogonian:before-navigate', { cancelable: true, detail: { url } });
         if (!document.dispatchEvent(cancelEvent)) {
-            return; // Navigation cancelled by listener
+            return; // Navigation cancelled
         }
-        lifecycle.beforeNavigate.forEach(fn => { try { fn(url); } catch(e){} });
+        for (const fn of lifecycle.beforeNavigate) {
+            try { if (fn(url) === false) return; } catch (e) { console.error(e); }
+        }
 
         try {
             document.body.classList.add('pogn-loading');
+            const csrfToken = getCSRFToken();
+
             const res = await fetch(url, {
                 headers: {
                     'X-Pogonian-Request': 'true',
+                    'X-CSRF-Token': csrfToken,
                     'Accept': 'text/html'
                 }
             });
@@ -68,21 +136,10 @@
             document.dispatchEvent(new CustomEvent('pogonian:before-swap', { detail: { url, newDoc } }));
             lifecycle.beforeSwap.forEach(fn => { try { fn(url, newDoc); } catch(e){} });
 
-            // 1. Reconcile Title
-            if (newDoc.title) {
-                document.title = newDoc.title;
-            }
+            // 1. Reconcile Head
+            reconcileHead(newDoc);
 
-            // 2. Reconcile Head Meta
-            newDoc.querySelectorAll('meta[name], meta[property]').forEach(newMeta => {
-                const name = newMeta.getAttribute('name') || newMeta.getAttribute('property');
-                const existing = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`);
-                if (existing) {
-                    existing.setAttribute('content', newMeta.getAttribute('content'));
-                }
-            });
-
-            // 3. Swap Root / Main content
+            // 2. Swap Root / Main content
             const currentRoot = getRootElement(document);
             const nextRoot = getRootElement(newDoc);
 
@@ -94,16 +151,24 @@
                 executeScripts(document.body);
             }
 
-            // 4. Update active links in nav
+            // 3. Update active links in nav
             updateActiveLinks(url);
 
-            // 5. Update History
+            // 4. Update History
             if (pushState) {
-                window.history.pushState({ url }, '', url);
+                window.history.pushState({ url, scrollY: 0 }, '', url);
             }
 
-            // 6. Scroll restoration
-            window.scrollTo({ top: 0, behavior: 'instant' });
+            // 5. Scroll restoration
+            const parsedUrl = new URL(url, window.location.origin);
+            if (parsedUrl.hash) {
+                const target = document.querySelector(parsedUrl.hash);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            } else {
+                window.scrollTo({ top: 0, behavior: 'instant' });
+            }
 
             // Lifecycle: afterNavigate
             document.dispatchEvent(new CustomEvent('pogonian:after-navigate', { detail: { url } }));
@@ -111,7 +176,7 @@
             lifecycle.afterNavigate.forEach(fn => { try { fn(url); } catch(e){} });
 
         } catch (err) {
-            console.error('[Pogonian] Soft navigation failed, falling back to full load:', err);
+            console.error('[Pogonian] Soft navigation error, fallback to full load:', err);
             window.location.href = url;
         } finally {
             document.body.classList.remove('pogn-loading');
@@ -140,7 +205,7 @@
         const download = link.hasAttribute('download');
         const rel = link.getAttribute('rel');
 
-        if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+        if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) return;
         if (target && target !== '_self') return;
         if (download || (rel && rel.includes('external'))) return;
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -152,51 +217,64 @@
         navigateTo(targetUrl.href, true);
     });
 
-    // Intercept form submissions
+    // Intercept form submissions (with PUT/PATCH/DELETE method spoofing & multipart support)
     document.addEventListener('submit', async (e) => {
         const form = e.target.closest('form');
         if (!form || form.dataset.pognNative !== undefined) return;
 
         const action = form.getAttribute('action') || window.location.href;
         let method = (form.getAttribute('method') || 'GET').toUpperCase();
-        const targetUrl = new URL(action, window.location.origin);
+        const spoofedMethod = form.querySelector('input[name="_method"]')?.value?.toUpperCase() || form.dataset.method?.toUpperCase();
+        if (spoofedMethod) {
+            method = spoofedMethod;
+        }
 
+        const targetUrl = new URL(action, window.location.origin);
         if (targetUrl.origin !== window.location.origin) return;
 
         e.preventDefault();
         document.body.classList.add('pogn-loading');
 
         try {
-            let res;
             if (method === 'GET') {
                 const formData = new FormData(form);
                 const params = new URLSearchParams(formData);
                 targetUrl.search = params.toString();
                 await navigateTo(targetUrl.href, true);
                 return;
-            } else {
-                const hasFileInput = form.querySelector('input[type="file"]') !== null;
-                const isMultipart = (form.getAttribute('enctype') || '').includes('multipart/form-data') || hasFileInput;
-                const formData = new FormData(form);
-
-                let bodyPayload;
-                let headers = {
-                    'X-Pogonian-Request': 'true',
-                    'Accept': 'text/html, application/json'
-                };
-
-                if (isMultipart) {
-                    bodyPayload = formData; // Browser automatically adds boundary header
-                } else {
-                    bodyPayload = new URLSearchParams(formData);
-                }
-
-                res = await fetch(action, {
-                    method: method,
-                    body: bodyPayload,
-                    headers: headers
-                });
             }
+
+            const hasFileInput = form.querySelector('input[type="file"]') !== null;
+            const isMultipart = (form.getAttribute('enctype') || '').includes('multipart/form-data') || hasFileInput;
+            const formData = new FormData(form);
+            const csrfToken = getCSRFToken();
+
+            let bodyPayload;
+            let headers = {
+                'X-Pogonian-Request': 'true',
+                'X-CSRF-Token': csrfToken,
+                'X-HTTP-Method-Override': method,
+                'Accept': 'text/html, application/json'
+            };
+
+            if (isMultipart) {
+                // If method spoofing with multipart, set _method in formData
+                if (method !== 'POST') {
+                    formData.set('_method', method);
+                }
+                bodyPayload = formData;
+            } else {
+                if (method !== 'POST') {
+                    formData.set('_method', method);
+                }
+                bodyPayload = new URLSearchParams(formData);
+            }
+
+            const res = await fetch(action, {
+                method: (method === 'GET' || method === 'POST') ? method : 'POST', // Fetch with POST and spoof header/body
+                body: bodyPayload,
+                headers: headers
+            });
 
             if (res.redirected) {
                 await navigateTo(res.url, true);
@@ -208,26 +286,27 @@
                 const html = await res.text();
                 const parser = new DOMParser();
                 const newDoc = parser.parseFromString(html, 'text/html');
+                
+                reconcileHead(newDoc);
                 const currentRoot = getRootElement(document);
                 const nextRoot = getRootElement(newDoc);
                 if (currentRoot && nextRoot) {
                     currentRoot.innerHTML = nextRoot.innerHTML;
                     executeScripts(currentRoot);
                 }
-                if (newDoc.title) document.title = newDoc.title;
             } else if (contentType.includes('application/json')) {
                 const json = await res.json();
                 document.dispatchEvent(new CustomEvent('pogonian:form-response', { detail: { data: json, status: res.status } }));
             }
         } catch (err) {
-            console.error('[Pogonian] Form submission error:', err);
+            console.error('[Pogonian] Form submission error, falling back:', err);
             form.submit();
         } finally {
             document.body.classList.remove('pogn-loading');
         }
     });
 
-    window.addEventListener('popstate', () => {
+    window.addEventListener('popstate', (e) => {
         navigateTo(window.location.href, false);
     });
 

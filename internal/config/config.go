@@ -13,6 +13,7 @@ type Config struct {
 	Name         string             `yaml:"name"`
 	Version      string             `yaml:"version"`
 	Framework    string             `yaml:"framework"`
+	Environment  string             `yaml:"environment,omitempty"` // "development", "test", "production"
 	Server       ServerConfig       `yaml:"server"`
 	Architecture ArchitectureConfig `yaml:"architecture"`
 	Database     DatabaseConfig     `yaml:"database"`
@@ -37,9 +38,10 @@ type DatabaseConfig struct {
 // DefaultConfig returns a sensible default configuration for Pogonian apps.
 func DefaultConfig(name string) *Config {
 	return &Config{
-		Name:      name,
-		Version:   "0.1.0",
-		Framework: "pogonian",
+		Name:        name,
+		Version:     "0.1.0",
+		Framework:   "pogonian",
+		Environment: "development",
 		Server: ServerConfig{
 			Host: "127.0.0.1",
 			Port: 3000,
@@ -55,9 +57,9 @@ func DefaultConfig(name string) *Config {
 	}
 }
 
-// Load loads the configuration from pogonian.yaml in the specified directory, and loads .env if present.
+// Load loads the configuration from pogonian.yaml in the specified directory, and loads cascading .env files.
 func Load(projectDir string) (*Config, error) {
-	// Auto-load .env file if present
+	// Auto-load cascading .env files based on active APP_ENV
 	LoadEnv(projectDir)
 
 	configPath := filepath.Join(projectDir, "pogonian.yaml")
@@ -72,6 +74,12 @@ func Load(projectDir string) (*Config, error) {
 	}
 
 	// Environment variable overrides
+	if appEnv := os.Getenv("APP_ENV"); appEnv != "" {
+		cfg.Environment = appEnv
+	} else if cfg.Environment == "" {
+		cfg.Environment = "development"
+	}
+
 	if portStr := os.Getenv("PORT"); portStr != "" {
 		var p int
 		if _, err := fmt.Sscanf(portStr, "%d", &p); err == nil && p > 0 {

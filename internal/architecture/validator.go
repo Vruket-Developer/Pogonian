@@ -30,7 +30,7 @@ func NewValidator(strict bool) *Validator {
 func (v *Validator) Validate(app *ir.Application, graph *DependencyGraph) []Violation {
 	violations := make([]Violation, 0)
 
-	// Rule 1: Handlers must NOT directly access Database (Layer Violation)
+	// Contract 1: Handlers must NOT directly access Database (Layer Isolation Violation)
 	for _, h := range app.Handlers {
 		if h.DirectDBAccess {
 			violations = append(violations, Violation{
@@ -43,7 +43,7 @@ func (v *Validator) Validate(app *ir.Application, graph *DependencyGraph) []Viol
 		}
 	}
 
-	// Rule 2: Check Circular Dependencies in graph
+	// Contract 2: Check Circular Dependencies in graph (Cycle Detection)
 	cycles := graph.DetectCycles()
 	for _, cycle := range cycles {
 		cycleStr := strings.Join(cycle, " ➔ ")
@@ -56,15 +56,36 @@ func (v *Validator) Validate(app *ir.Application, graph *DependencyGraph) []Viol
 		})
 	}
 
-	// Rule 3: Ensure Handlers call Services
+	// Contract 3: Ensure Handlers call Services (Encapsulation)
 	for _, h := range app.Handlers {
 		if len(h.CallsServices) == 0 && !h.DirectDBAccess {
+			sev := "WARNING"
+			if v.Strict {
+				sev = "ERROR"
+			}
 			violations = append(violations, Violation{
-				Severity:   "WARNING",
+				Severity:   sev,
 				Layer:      "Handler",
 				Component:  fmt.Sprintf("%s (%s)", h.Name, h.File),
 				Message:    "Handler has no Service dependencies attached",
-				Suggestion: "Attach a domain Service to handle business logic.",
+				Suggestion: "Attach a domain Service to encapsulate business logic.",
+			})
+		}
+	}
+
+	// Contract 4: Ensure Services call Repositories when performing data operations
+	for _, s := range app.Services {
+		if len(s.CallsRepos) == 0 {
+			sev := "WARNING"
+			if v.Strict {
+				sev = "ERROR"
+			}
+			violations = append(violations, Violation{
+				Severity:   sev,
+				Layer:      "Service",
+				Component:  fmt.Sprintf("%s (%s)", s.Name, s.File),
+				Message:    "Service has no Repository dependencies attached",
+				Suggestion: "Attach a Repository to persist domain entities.",
 			})
 		}
 	}

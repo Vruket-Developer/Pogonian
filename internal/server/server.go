@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -48,7 +49,7 @@ func (rec *responseRecorder) WriteHeader(code int) {
 	rec.ResponseWriter.WriteHeader(code)
 }
 
-// New creates a new Pogonian HTTP server instance with DB and middleware.
+// New creates a new Pogonian HTTP server instance with DB, template engine, and middleware.
 func New(projectDir string, devMode bool) (*Server, error) {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
@@ -61,7 +62,14 @@ func New(projectDir string, devMode bool) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize router: %w", err)
 	}
 
-	rend := compiler.NewRenderer(cfg.Name, projectDir)
+	rend := compiler.NewRendererWithMode(cfg.Name, projectDir, devMode)
+
+	// In production, precompile all template chains for maximum performance and zero per-request parsing
+	if !devMode {
+		if err := rend.PrecompileAll(r.Routes); err != nil {
+			return nil, fmt.Errorf("failed to precompile production templates: %w", err)
+		}
+	}
 
 	var db *database.DB
 	if cfg.Database.Driver == "sqlite" && cfg.Database.Path != "" {
@@ -96,7 +104,7 @@ func (s *Server) RegisterLoader(path string, loader DataLoaderFunc) {
 	s.DataLoaders[path] = loader
 }
 
-// RegisterAction registers a form POST action handler for a specific route path.
+// RegisterAction registers a form POST/PUT/DELETE action handler for a specific route path.
 func (s *Server) RegisterAction(path string, action ActionHandlerFunc) {
 	s.Actions[path] = action
 }
@@ -109,8 +117,31 @@ func (s *Server) Handler() http.Handler {
 		baseHandler,
 		middleware.Recovery(s.DevMode),
 		middleware.RateLimit(500, time.Minute),
-		middleware.CSRF(true), // Enabled CSRF protection
+		middleware.CSRF(true), // Enabled fail-closed CSRF protection
 	)
+}
+
+// resolveEffectiveMethod inspects headers and form body to support method spoofing (PUT, PATCH, DELETE).
+func resolveEffectiveMethod(r *http.Request) string {
+	if r.Method == http.MethodPost {
+		// 1. Check Header
+		if override := r.Header.Get("X-HTTP-Method-Override"); override != "" {
+			upper := strings.ToUpper(strings.TrimSpace(override))
+			if upper == "PUT" || upper == "PATCH" || upper == "DELETE" {
+				return upper
+			}
+		}
+		// 2. Check Form value
+		_ = r.ParseMultipartForm(32 << 20)
+		_ = r.ParseForm()
+		if formMethod := r.FormValue("_method"); formMethod != "" {
+			upper := strings.ToUpper(strings.TrimSpace(formMethod))
+			if upper == "PUT" || upper == "PATCH" || upper == "DELETE" {
+				return upper
+			}
+		}
+	}
+	return r.Method
 }
 
 func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +151,9 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		duration := time.Since(start)
 		s.logRequest(r.Method, r.URL.Path, rec.statusCode, duration)
-		devtools.GlobalRecorder.Record(r.Method, r.URL.Path, rec.statusCode, duration)
+		if s.DevMode {
+			devtools.GlobalRecorder.Record(r.Method, r.URL.Path, rec.statusCode, duration)
+		}
 	}()
 
 	// 1. In-Page DevTools & DevBar routes (Dev Mode only)
@@ -135,7 +168,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Serve Static Assets (Public & project static files with path traversal protection)
+	// 2. Serve Static Assets (Public & project static files with explicit path traversal protection)
 	if s.handleStatic(rec, r) {
 		return
 	}
@@ -143,17 +176,29 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// 3. Serve Builtin Client Runtime
 	if r.URL.Path == "/_pogn/runtime.js" {
 		rec.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		rec.Header().Set("Cache-Control", "no-cache")
-		rec.Write([]byte(runtime.RuntimeJS))
+		if s.DevMode {
+			rec.Header().Set("Cache-Control", "no-cache")
+		} else {
+			rec.Header().Set("Cache-Control", "public, max-age=86400")
+		}
+		rec.Write(runtime.RuntimeJS)
 		return
 	}
 
 	// 4. Match Filesystem Route
 	if route, params := s.Router.Match(r.URL.Path); route != nil {
-		// Handle Action Submissions (Form POST/PUT/DELETE)
-		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete {
+		effectiveMethod := resolveEffectiveMethod(r)
+
+		// Handle Action Submissions (Form POST/PUT/PATCH/DELETE)
+		if effectiveMethod == http.MethodPost || effectiveMethod == http.MethodPut ||
+			effectiveMethod == http.MethodPatch || effectiveMethod == http.MethodDelete {
+
 			if action, exists := s.Actions[route.Path]; exists {
-				action(rec, r, params)
+				if err := action(rec, r, params); err != nil {
+					rec.WriteHeader(http.StatusInternalServerError)
+					rec.Header().Set("Content-Type", "text/html; charset=utf-8")
+					fmt.Fprintf(rec, "<h1>500 Action Handler Error</h1><p>%v</p>", err)
+				}
 				return
 			}
 
@@ -165,7 +210,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 				formMap := make(map[string]string)
 				for k, v := range r.PostForm {
-					if len(v) > 0 && k != "_csrf" {
+					if len(v) > 0 && k != "_csrf" && k != "_method" {
 						formMap[k] = v[0]
 					}
 				}
@@ -253,28 +298,38 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.Handler().ServeHTTP(w, r)
 }
 
+// handleStatic serves static files with strict path traversal prevention.
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) bool {
+	// Block null bytes and control characters
+	if strings.Contains(r.URL.Path, "\x00") {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return true
+	}
+
 	cleaned := filepath.Clean(r.URL.Path)
 	if cleaned == "/" || cleaned == "." {
 		return false
 	}
 	relPath := strings.TrimPrefix(cleaned, "/")
 
-	cleanProject := filepath.Clean(s.ProjectDir)
+	absProject, err := filepath.Abs(s.ProjectDir)
+	if err != nil {
+		return false
+	}
 
-	// Direct files in project root (e.g. globals.css, globals.js, favicon.svg)
-	rootCandidate := filepath.Join(cleanProject, relPath)
-	if strings.HasPrefix(rootCandidate, cleanProject) {
+	// 1. Direct files in project root (e.g. globals.css, globals.js, favicon.svg)
+	rootCandidate, err := filepath.Abs(filepath.Join(absProject, relPath))
+	if err == nil && isSubPath(absProject, rootCandidate) {
 		if info, err := os.Stat(rootCandidate); err == nil && !info.IsDir() {
 			http.ServeFile(w, r, rootCandidate)
 			return true
 		}
 	}
 
-	// Files inside public/
-	publicDir := filepath.Join(cleanProject, "public")
-	publicCandidate := filepath.Join(publicDir, relPath)
-	if strings.HasPrefix(publicCandidate, publicDir) {
+	// 2. Files inside public/
+	publicDir := filepath.Join(absProject, "public")
+	publicCandidate, err := filepath.Abs(filepath.Join(publicDir, relPath))
+	if err == nil && isSubPath(publicDir, publicCandidate) {
 		if info, err := os.Stat(publicCandidate); err == nil && !info.IsDir() {
 			http.ServeFile(w, r, publicCandidate)
 			return true
@@ -282,6 +337,14 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	return false
+}
+
+func isSubPath(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..") && rel != ".."
 }
 
 func (s *Server) handleNotFound(w *responseRecorder, r *http.Request) {
@@ -334,8 +397,13 @@ func (s *Server) Start() error {
 		Handler: s.Handler(),
 	}
 
+	modeName := "Dev Server"
+	if !s.DevMode {
+		modeName = "Production Server"
+	}
+
 	fmt.Println()
-	fmt.Printf("  \x1b[1;36mPogonian Dev Server\x1b[0m \x1b[1;30mv0.1.0\x1b[0m\n")
+	fmt.Printf("  \x1b[1;36mPogonian %s\x1b[0m \x1b[1;30mv0.1.0\x1b[0m\n", modeName)
 	fmt.Printf("  ➜  \x1b[1mLocal:\x1b[0m   \x1b[1;32mhttp://%s\x1b[0m\n", addr)
 	fmt.Printf("  ➜  \x1b[1mApp:\x1b[0m     %s\n", s.Config.Name)
 	fmt.Printf("  ➜  \x1b[1mRoutes:\x1b[0m  %d discovered\n", len(s.Router.Routes))
@@ -348,7 +416,18 @@ func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Close closes the server and database connections.
+// Shutdown gracefully shuts down the server without interrupting active connections.
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.DB != nil {
+		_ = s.DB.Close()
+	}
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
+}
+
+// Close forcefully closes the server and database connections.
 func (s *Server) Close() error {
 	if s.DB != nil {
 		_ = s.DB.Close()

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -15,14 +16,14 @@ const (
 
 // GenerateToken generates a cryptographically secure 32-byte hexadecimal CSRF token, failing closed if randomness fails.
 func GenerateToken() (string, error) {
-	bytes := make([]byte, 16)
+	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", fmt.Errorf("cryptographic randomness failure: %w", err)
 	}
 	return hex.EncodeToString(bytes), nil
 }
 
-// CSRF provides Cross-Site Request Forgery protection.
+// CSRF provides Cross-Site Request Forgery protection that is enabled by default and fails closed.
 func CSRF(enabled bool) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +59,7 @@ func CSRF(enabled bool) Middleware {
 				return
 			}
 
-			// For state-changing methods (POST, PUT, DELETE, PATCH), validate token
+			// For state-changing methods (POST, PUT, DELETE, PATCH), validate token strictly
 			receivedToken := r.Header.Get(CSRFHeaderName)
 
 			// If not in header, check form body or query
@@ -68,12 +69,8 @@ func CSRF(enabled bool) Middleware {
 				receivedToken = r.FormValue(CSRFFormField)
 			}
 
-			// Allow Pogonian runtime internal requests with X-Pogonian-Request header for soft navigation
-			if r.Header.Get("X-Pogonian-Request") == "true" && receivedToken == "" {
-				receivedToken = token
-			}
-
-			if receivedToken == "" || receivedToken != token {
+			// Constant-time token verification (Fail Closed)
+			if receivedToken == "" || subtle.ConstantTimeCompare([]byte(receivedToken), []byte(token)) != 1 {
 				http.Error(w, "403 Forbidden: Invalid or missing CSRF token", http.StatusForbidden)
 				return
 			}

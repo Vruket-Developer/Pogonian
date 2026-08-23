@@ -33,22 +33,30 @@ func NewAnalyzer(projectDir string) (*Analyzer, error) {
 	}, nil
 }
 
-// Analyze performs static AST analysis and returns both the Pogonian IR and the DependencyGraph.
+// Analyze performs static AST & symbol-level analysis and returns the Pogonian IR and DependencyGraph.
 func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 	appIR := &ir.Application{
-		Name:         a.Config.Name,
-		Version:      a.Config.Version,
-		Framework:    "pogonian",
-		Architecture: a.Config.Architecture.Style,
-		Routes:       make([]*ir.RouteIR, 0),
-		Entities:     make([]*ir.EntityIR, 0),
-		Handlers:     make([]*ir.HandlerIR, 0),
-		Services:     make([]*ir.ServiceIR, 0),
-		Repositories: make([]*ir.RepositoryIR, 0),
+		SchemaVersion: ir.SchemaVersion,
+		Name:          a.Config.Name,
+		Version:       a.Config.Version,
+		Framework:     "pogonian",
+		Architecture:  a.Config.Architecture.Style,
+		Routes:        make([]*ir.RouteIR, 0),
+		Entities:      make([]*ir.EntityIR, 0),
+		Handlers:      make([]*ir.HandlerIR, 0),
+		Services:      make([]*ir.ServiceIR, 0),
+		Repositories:  make([]*ir.RepositoryIR, 0),
 		Database: &ir.DatabaseIR{
 			Driver: a.Config.Database.Driver,
 			Tables: make([]ir.TableIR, 0),
 		},
+		Contracts: []*ir.ContractIR{
+			{Name: "Handler-to-Database-Isolation", SourceLayer: "Handler", TargetLayer: "Database", Rule: "DENY", Enforced: true},
+			{Name: "Clean-Unidirectional-Flow", SourceLayer: "Page", TargetLayer: "Handler", Rule: "ALLOW", Enforced: true},
+			{Name: "Service-Business-Encapsulation", SourceLayer: "Handler", TargetLayer: "Service", Rule: "ALLOW", Enforced: true},
+			{Name: "Repository-Data-Encapsulation", SourceLayer: "Service", TargetLayer: "Repository", Rule: "ALLOW", Enforced: true},
+		},
+		Features: make([]*ir.FeatureIR, 0),
 	}
 
 	graph := NewGraph()
@@ -75,11 +83,14 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 		}
 	}
 
-	// 2. Parse Go Backend AST (server/ directory)
+	// 2. Parse Go Backend AST (server/ directory) with symbol-level accuracy
 	serverDir := filepath.Join(a.ProjectDir, "server")
 	if _, err := os.Stat(serverDir); err == nil {
 		fset := token.NewFileSet()
 
+		methodMap := make(map[string][]*ir.MethodIR) // typeName -> methods
+
+		// First pass: scan files and extract methods and types
 		err := filepath.WalkDir(serverDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 				return nil
@@ -93,7 +104,32 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 			packageName := node.Name.Name
 			relFile, _ := filepath.Rel(a.ProjectDir, path)
 
-			// Inspect AST declarations
+			// Inspect functions and method receivers
+			for _, decl := range node.Decls {
+				if fn, ok := decl.(*ast.FuncDecl); ok {
+					if fn.Recv != nil && len(fn.Recv.List) > 0 {
+						recvType := extractTypeName(fn.Recv.List[0].Type)
+						method := &ir.MethodIR{
+							Name:       fn.Name.Name,
+							Parameters: make([]string, 0),
+							Returns:    make([]string, 0),
+						}
+						if fn.Type.Params != nil {
+							for _, p := range fn.Type.Params.List {
+								method.Parameters = append(method.Parameters, fmt.Sprintf("%v", p.Type))
+							}
+						}
+						if fn.Type.Results != nil {
+							for _, r := range fn.Type.Results.List {
+								method.Returns = append(method.Returns, fmt.Sprintf("%v", r.Type))
+							}
+						}
+						methodMap[recvType] = append(methodMap[recvType], method)
+					}
+				}
+			}
+
+			// Inspect AST struct types
 			ast.Inspect(node, func(n ast.Node) bool {
 				ts, ok := n.(*ast.TypeSpec)
 				if !ok {
@@ -116,7 +152,6 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 						CallsServices: make([]string, 0),
 					}
 
-					// Inspect struct fields for dependencies
 					for _, field := range st.Fields.List {
 						fieldTypeStr := fmt.Sprintf("%v", field.Type)
 						if strings.Contains(fieldTypeStr, "Service") {
@@ -132,7 +167,7 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 					hNodeID := fmt.Sprintf("handler:%s.%s", packageName, structName)
 					graph.AddNode(hNodeID, structName, NodeHandler)
 
-					// Connect corresponding Route -> Handler
+					// Connect Route -> Handler
 					moduleName := strings.ToLower(strings.TrimSuffix(structName, "Handler"))
 					routeNodeID := fmt.Sprintf("route:/%s", moduleName)
 					if _, exists := graph.Nodes[routeNodeID]; exists {
@@ -187,16 +222,24 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 					graph.AddEdge(rNodeID, dbNodeID, "queries")
 
 				default:
-					// Entity model
 					entity := &ir.EntityIR{
-						Name:   structName,
-						Fields: make([]ir.FieldIR, 0),
+						Name:      structName,
+						Package:   packageName,
+						File:      relFile,
+						TableName: strings.ToLower(structName) + "s",
+						Fields:    make([]ir.FieldIR, 0),
 					}
 					for _, field := range st.Fields.List {
+						jsonTag := ""
+						if field.Tag != nil {
+							jsonTag = field.Tag.Value
+						}
 						for _, fname := range field.Names {
 							entity.Fields = append(entity.Fields, ir.FieldIR{
-								Name: fname.Name,
-								Type: fmt.Sprintf("%v", field.Type),
+								Name:    fname.Name,
+								Type:    fmt.Sprintf("%v", field.Type),
+								JSONTag: jsonTag,
+								PK:      strings.EqualFold(fname.Name, "id"),
 							})
 						}
 					}
@@ -211,6 +254,44 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Attach parsed method symbols to IR components
+		for _, h := range appIR.Handlers {
+			h.Methods = methodMap[h.Name]
+		}
+		for _, s := range appIR.Services {
+			s.Methods = methodMap[s.Name]
+		}
+		for _, r := range appIR.Repositories {
+			r.Methods = methodMap[r.Name]
+		}
+	}
+
+	// 3. Converge Features into Feature Graph
+	for _, h := range appIR.Handlers {
+		mod := strings.ToLower(strings.TrimSuffix(h.Name, "Handler"))
+		feat := &ir.FeatureIR{
+			Name:         mod,
+			Route:        "/" + mod,
+			Handler:      h.Name,
+			Capabilities: []string{"CRUD", "HTML-First", "Soft-Navigation"},
+		}
+		for _, s := range appIR.Services {
+			if strings.EqualFold(strings.TrimSuffix(s.Name, "Service"), mod) {
+				feat.Service = s.Name
+			}
+		}
+		for _, r := range appIR.Repositories {
+			if strings.EqualFold(strings.TrimSuffix(r.Name, "Repository"), mod) {
+				feat.Repository = r.Name
+			}
+		}
+		for _, e := range appIR.Entities {
+			if strings.EqualFold(e.Name, mod) {
+				feat.Entity = e.Name
+			}
+		}
+		appIR.Features = append(appIR.Features, feat)
 	}
 
 	return appIR, graph, nil

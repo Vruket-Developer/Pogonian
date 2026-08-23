@@ -13,6 +13,8 @@ const (
 	FrameworkReact   FrameworkType = "React"
 	FrameworkNextJS  FrameworkType = "Next.js"
 	FrameworkVue     FrameworkType = "Vue"
+	FrameworkNuxt    FrameworkType = "Nuxt"
+	FrameworkSvelte  FrameworkType = "Svelte"
 	FrameworkExpress FrameworkType = "Express"
 	FrameworkGeneric FrameworkType = "Generic Web"
 )
@@ -57,13 +59,22 @@ func DetectFramework(sourceDir string) (*SourceProject, error) {
 			if deps["next"] {
 				proj.Framework = FrameworkNextJS
 				proj.HasRouter = true
+			} else if deps["nuxt"] {
+				proj.Framework = FrameworkNuxt
+				proj.HasRouter = true
+			} else if deps["svelte"] || deps["@sveltejs/kit"] {
+				proj.Framework = FrameworkSvelte
+				proj.HasRouter = true
+			} else if deps["vue"] {
+				proj.Framework = FrameworkVue
+				if deps["vue-router"] {
+					proj.HasRouter = true
+				}
 			} else if deps["react"] {
 				proj.Framework = FrameworkReact
 				if deps["react-router"] || deps["react-router-dom"] {
 					proj.HasRouter = true
 				}
-			} else if deps["vue"] || deps["nuxt"] {
-				proj.Framework = FrameworkVue
 			} else if deps["express"] {
 				proj.Framework = FrameworkExpress
 				proj.HasBackend = true
@@ -76,6 +87,10 @@ func DetectFramework(sourceDir string) (*SourceProject, error) {
 		if _, err := os.Stat(filepath.Join(sourceDir, "pages")); err == nil {
 			proj.Framework = FrameworkNextJS
 			proj.HasRouter = true
+		} else if _, err := os.Stat(filepath.Join(sourceDir, "src", "App.vue")); err == nil {
+			proj.Framework = FrameworkVue
+		} else if _, err := os.Stat(filepath.Join(sourceDir, "src", "App.svelte")); err == nil {
+			proj.Framework = FrameworkSvelte
 		} else if _, err := os.Stat(filepath.Join(sourceDir, "src", "App.jsx")); err == nil {
 			proj.Framework = FrameworkReact
 		}

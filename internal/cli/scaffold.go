@@ -8,30 +8,43 @@ import (
 
 	"pogonian/internal/ai"
 	"pogonian/internal/architecture"
+	"pogonian/internal/modules"
 )
 
-// RunAdd handles `pogn add table <name>`, `pogn add module <name>`, `pogn add route <path>`.
+// RunAdd handles `pogn add module <name>`, `pogn add component <name>`, `pogn add table <name>`, `pogn add route <path>`.
 func RunAdd(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage:\n  pogn add table <name>\n  pogn add module <name>\n  pogn add route <path>")
+		return fmt.Errorf("usage:\n  pogn add module <name>\n  pogn add component <name>\n  pogn add table <name>\n  pogn add route <path>")
 	}
 
-	targetType := "table"
+	targetType := ""
 	targetName := ""
 	projectDir := "."
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "table" || arg == "module" || arg == "route" {
+		switch arg {
+		case "module", "component", "table", "route":
 			targetType = arg
 			if i+1 < len(args) {
 				targetName = args[i+1]
 				i++
 			}
-		} else if strings.HasPrefix(arg, "--dir=") {
-			projectDir = strings.TrimPrefix(arg, "--dir=")
-		} else if targetName == "" {
-			targetName = arg
+		default:
+			if strings.HasPrefix(arg, "--dir=") {
+				projectDir = strings.TrimPrefix(arg, "--dir=")
+			} else if targetName == "" && targetType != "" {
+				targetName = arg
+			} else if targetType == "" {
+				// Check if arg is a known module/component name directly (e.g. `pogn add footer`)
+				if _, exists := modules.Catalog[strings.ToLower(arg)]; exists {
+					targetType = "module"
+					targetName = arg
+				} else {
+					targetType = "table"
+					targetName = arg
+				}
+			}
 		}
 	}
 
@@ -44,6 +57,32 @@ func RunAdd(args []string) error {
 		return err
 	}
 
+	// 1. Module / Component Marketplace Scaffolding
+	if targetType == "module" || targetType == "component" {
+		res, err := modules.InstallModule(absDir, targetName)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println()
+		fmt.Printf("📦 \x1b[1;36mPogonian Marketplace Installer\x1b[0m\n")
+		fmt.Printf("   Successfully installed \x1b[1;32m%s\x1b[0m (\x1b[1m%s\x1b[0m)\n\n", res.ModuleName, res.Category)
+
+		for _, f := range res.FilesCreated {
+			rel, _ := filepath.Rel(absDir, f)
+			fmt.Printf("  ✓ Created \x1b[1;36m%s\x1b[0m\n", rel)
+		}
+
+		if res.UsageHint != "" {
+			fmt.Println()
+			fmt.Printf("💡 \x1b[1mHow to use in your pages:\x1b[0m\n")
+			fmt.Printf("   \x1b[1;33m%s\x1b[0m\n", res.UsageHint)
+		}
+		fmt.Println()
+		return nil
+	}
+
+	// 2. Standalone Route Page Scaffolding
 	if targetType == "route" {
 		routePath := strings.TrimPrefix(targetName, "/")
 		routeDir := filepath.Join(absDir, "app", routePath)
@@ -60,7 +99,6 @@ func RunAdd(args []string) error {
 		var htmlContent string
 
 		if _, err := os.Stat(entityPath); err == nil {
-			// Schema-driven generation from Go struct!
 			structName, fields, err := architecture.ParseEntityFile(entityPath)
 			if err == nil && len(fields) > 0 {
 				htmlContent = architecture.GenerateHTMLFromFields(routePath, structName, fields)
@@ -92,18 +130,18 @@ func RunAdd(args []string) error {
 		return nil
 	}
 
-	// For table or module -> scaffold complete full-stack tier
+	// 3. Database Table Entity Scaffolding (Full-stack Go CRUD + View)
 	plan := &ai.AIPlan{
 		FeatureName: targetName,
 	}
 
 	artifacts, err := ai.ApplyPlan(absDir, plan)
 	if err != nil {
-		return fmt.Errorf("failed to add %s: %w", targetType, err)
+		return fmt.Errorf("failed to add table: %w", err)
 	}
 
 	fmt.Println()
-	fmt.Printf("✨ \x1b[1;32mSuccessfully added %s '%s':\x1b[0m\n", targetType, artifacts.ModuleName)
+	fmt.Printf("✨ \x1b[1;32mSuccessfully added table '%s':\x1b[0m\n", artifacts.ModuleName)
 	for _, f := range artifacts.Files {
 		rel, _ := filepath.Rel(absDir, f)
 		fmt.Printf("  ✓ Created \x1b[1;36m%s\x1b[0m\n", rel)
@@ -111,6 +149,34 @@ func RunAdd(args []string) error {
 	fmt.Printf("  ✓ Registered in \x1b[1;36m.pogonian/architecture/app.ai\x1b[0m\n")
 	fmt.Printf("  ✓ Dynamic SQLite table ready\n\n")
 	fmt.Printf("🚀 \x1b[1mView live at:\x1b[0m \x1b[1;34mhttp://localhost:3000/%s\x1b[0m\n\n", artifacts.ModuleName)
+
+	return nil
+}
+
+// RunListModules displays the catalog of all available marketplace components.
+func RunListModules(args []string) error {
+	fmt.Println()
+	fmt.Printf("🏪 \x1b[1;36mPogonian Component & Module Marketplace\x1b[0m\n")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("  Add any component/module directly to your project without npm dependencies:")
+	fmt.Println("    \x1b[1;33mpogn add module <name>\x1b[0m  or  \x1b[1;33mpogn add component <name>\x1b[0m")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+
+	mods := modules.ListModules()
+	for _, m := range mods {
+		typeColor := "\x1b[1;34m" // UI
+		if m.Category == modules.CategoryFullStack {
+			typeColor = "\x1b[1;35m" // Full stack
+		}
+
+		fmt.Printf("  • %-12s %s[%s]\x1b[0m\n", "\x1b[1;36m"+m.Name+"\x1b[0m", typeColor, m.Category)
+		fmt.Printf("    \x1b[1;30m↳ %s\x1b[0m\n", m.Description)
+		if m.UsageHint != "" {
+			fmt.Printf("    \x1b[1;32m↳ %s\x1b[0m\n", m.UsageHint)
+		}
+		fmt.Println()
+	}
 
 	return nil
 }
@@ -127,7 +193,7 @@ func RunRemove(args []string) error {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "table" || arg == "module" || arg == "route" {
+		if arg == "table" || arg == "module" || arg == "route" || arg == "component" {
 			targetType = arg
 			if i+1 < len(args) {
 				targetName = args[i+1]
@@ -150,6 +216,15 @@ func RunRemove(args []string) error {
 	}
 
 	mod := strings.ToLower(strings.Trim(targetName, "/"))
+
+	// Component removal
+	if targetType == "component" {
+		compFile := filepath.Join(absDir, "app", "components", mod+".html")
+		_ = os.Remove(compFile)
+		fmt.Println()
+		fmt.Printf("🗑️  \x1b[1;31mRemoved component:\x1b[0m \x1b[1mapp/components/%s.html\x1b[0m\n\n", mod)
+		return nil
+	}
 
 	if targetType == "route" {
 		routeDir := filepath.Join(absDir, "app", mod)

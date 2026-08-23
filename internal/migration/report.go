@@ -5,18 +5,19 @@ import (
 	"strings"
 )
 
-// Report provides detailed migration confidence metrics and component inventories.
+// Report provides detailed migration confidence metrics, component inventories, and behavioral analysis.
 type Report struct {
-	AppName          string   `json:"app_name"`
-	SourceFramework  string   `json:"source_framework"`
-	AutomaticPercent float64  `json:"automatic_percent"`
-	AIAssisted       float64  `json:"ai_assisted_percent"`
-	ManualPercent    float64  `json:"manual_percent"`
-	RoutesCount      int      `json:"routes_count"`
-	ComponentsCount  int      `json:"components_count"`
-	APIsCount        int      `json:"apis_count"`
-	ConvertedRoutes  []string `json:"converted_routes"`
-	Warnings         []string `json:"warnings"`
+	AppName          string              `json:"app_name"`
+	SourceFramework  string              `json:"source_framework"`
+	AutomaticPercent float64             `json:"automatic_percent"`
+	AIAssisted       float64             `json:"ai_assisted_percent"`
+	ManualPercent    float64             `json:"manual_percent"`
+	RoutesCount      int                 `json:"routes_count"`
+	ComponentsCount  int                 `json:"components_count"`
+	APIsCount        int                 `json:"apis_count"`
+	ConvertedRoutes  []string            `json:"converted_routes"`
+	Warnings         []string            `json:"warnings"`
+	Behavior         *BehavioralAnalysis `json:"behavior,omitempty"`
 }
 
 // Summary formats the migration report into a human-readable summary.
@@ -36,6 +37,13 @@ func (r *Report) Summary() string {
 	sb.WriteString(fmt.Sprintf("    • %d Routes / Pages\n", r.RoutesCount))
 	sb.WriteString(fmt.Sprintf("    • %d Components\n", r.ComponentsCount))
 	sb.WriteString(fmt.Sprintf("    • %d Backend API Endpoints\n\n", r.APIsCount))
+
+	if r.Behavior != nil {
+		sb.WriteString("  \x1b[1mBehavioral Interaction Mapping:\x1b[0m\n")
+		sb.WriteString(fmt.Sprintf("    • %d Client UI Interactions (Mapped to globals.js progressive handlers)\n", r.Behavior.ClientInteractions))
+		sb.WriteString(fmt.Sprintf("    • %d Data Fetching Operations (Mapped to Go Server Handlers)\n", r.Behavior.ServerDataLoaders))
+		sb.WriteString(fmt.Sprintf("    • %d State Mutations (Mapped to Pogonian Form Actions)\n\n", r.Behavior.FormMutations))
+	}
 
 	if len(r.Warnings) > 0 {
 		sb.WriteString("  \x1b[1;33mAction Items & Warnings:\x1b[0m\n")

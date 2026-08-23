@@ -6,38 +6,45 @@ This document provides a complete reference for all available commands in the `p
 
 ## 📋 Table of Contents
 
-- [Core Development](#1-core-development)
+- [Core Development & Testing](#1-core-development--testing)
   - [`pogn create`](#pogn-create)
   - [`pogn dev`](#pogn-dev)
+  - [`pogn test`](#pogn-test)
   - [`pogn check`](#pogn-check)
   - [`pogn build`](#pogn-build)
-- [Scaffolding & Architecture](#2-scaffolding--architecture)
+  - [`pogn upgrade`](#pogn-upgrade)
+- [Database & Migrations](#2-database--migrations)
+  - [`pogn db:migrate`](#pogn-dbmigrate)
+  - [`pogn db:rollback`](#pogn-dbrollback)
+  - [`pogn db:status`](#pogn-dbstatus)
+  - [`pogn db:new`](#pogn-dbnew)
+- [Scaffolding & Architecture](#3-scaffolding--architecture)
   - [`pogn add table`](#pogn-add-table)
   - [`pogn add route`](#pogn-add-route)
   - [`pogn remove table`](#pogn-remove-table)
   - [`pogn remove route`](#pogn-remove-route)
   - [`pogn inspect`](#pogn-inspect)
   - [`pogn analyze`](#pogn-analyze)
-- [Diagnostics & Blast Radius Analysis](#3-diagnostics--blast-radius-analysis)
+- [Diagnostics & Blast Radius Analysis](#4-diagnostics--blast-radius-analysis)
   - [`pogn impact`](#pogn-impact)
   - [`pogn doctor`](#pogn-doctor)
   - [`pogn explain`](#pogn-explain)
   - [`pogn blueprint`](#pogn-blueprint)
   - [`pogn docs`](#pogn-docs)
-- [Secrets, Security & Maintenance](#4-secrets-security--maintenance)
+- [Secrets, Security & Benchmarks](#5-secrets-security--benchmarks)
   - [`pogn secret` / `pogn key:generate`](#pogn-secret--pogn-keygenerate)
   - [`pogn clean`](#pogn-clean)
   - [`pogn reset`](#pogn-reset)
   - [`pogn security audit`](#pogn-security-audit)
-  - [`pogn benchmark`](#pogn-benchmark)
-- [AI & Legacy Migration](#5-ai--legacy-migration)
-  - [`pogn ai`](#pogn-ai)
+  - [`pogn benchmark` / `pogn benchmark --stress`](#pogn-benchmark)
+- [AI & Legacy Migration](#6-ai--legacy-migration)
+  - [`pogn ai` & `pogn ai rollback`](#pogn-ai)
   - [`pogn import`](#pogn-import)
   - [`pogn migrate`](#pogn-migrate)
 
 ---
 
-## 1. Core Development
+## 1. Core Development & Testing
 
 ### `pogn create`
 Scaffolds a new Pogonian application complete with 5-tier architecture, `.env` file with 256-bit cryptographic `APP_KEY`, `.env.example`, `pogonian.yaml`, and `pogonian.lock`.
@@ -53,24 +60,13 @@ pogn create demo --dry-run
 pogn create existing-folder --force
 ```
 
-**Flags:**
-- `--force`, `-f`: Overwrite existing non-empty directory.
-- `--dry-run`: Preview files to be created without writing to disk.
-- `--template=<name>`: Choose scaffolding template (default: `default`).
-
 ---
 
 ### `pogn dev`
 Launches the high-speed local development server with Radix Route Trie matching, soft-navigation client runtime, hot reload, and in-page DevTools HUD.
 
 ```bash
-# Syntax
 pogn dev [project-dir] [flags]
-
-# Examples
-pogn dev
-pogn dev ./my-app
-pogn dev --port=8080
 ```
 
 **Features Active in Dev Mode:**
@@ -81,17 +77,27 @@ pogn dev --port=8080
 
 ---
 
-### `pogn check`
-Performs static AST architecture boundary analysis, verifies route mappings, detects circular package dependencies, and verifies layer encapsulation rules.
+### `pogn test`
+Unified test suite orchestrator running Architecture Contract Verification, Security & Vulnerability Scans, Go Unit & Integration Tests, and automated Fresh Disposable Project E2E runs.
 
 ```bash
-# Syntax
-pogn check [project-dir] [flags]
+# Run all standard tests
+pogn test
 
-# Examples
-pogn check
-pogn check ./my-app
-pogn check --strict
+# Run tests with automated Disposable Fresh Project E2E run
+pogn test --e2e
+
+# Run unit tests only
+pogn test --unit-only -v
+```
+
+---
+
+### `pogn check`
+Performs static AST architecture boundary analysis, verifies route mappings, detects circular package dependencies, and verifies layer encapsulation contracts.
+
+```bash
+pogn check [project-dir] [--strict]
 ```
 
 **Rules Enforced:**
@@ -103,44 +109,74 @@ pogn check --strict
 ---
 
 ### `pogn build`
-Synthesizes a standalone application server entrypoint (`.pogonian/build/main.go`), embeds all HTML templates, client runtime (`runtime.js`), CSS, and assets, and compiles a single optimized binary.
+Synthesizes a standalone application server entrypoint, precompiles all HTML templates, client runtime (`runtime.js`), CSS, and assets, and compiles a single optimized production release.
 
 ```bash
-# Syntax
-pogn build [project-dir] [flags]
-
-# Examples
-pogn build
-pogn build ./my-app
-pogn build --standalone
+pogn build [project-dir] [--standalone]
 ```
-
-**Output:**  
-Creates `./dist/<app-name>` (Single executable binary with zero external dependencies).
 
 ---
 
-## 2. Scaffolding & Architecture
+### `pogn upgrade`
+Checks project configuration, schema version of `app.ai`, missing migration directories, and upgrades project assets to the latest Pogonian version.
+
+```bash
+pogn upgrade [project-dir]
+```
+
+---
+
+## 2. Database & Migrations
+
+### `pogn db:migrate`
+Applies all pending schema migrations inside the `migrations/` directory using transactional execution and checksum verification.
+
+```bash
+pogn db:migrate
+```
+
+---
+
+### `pogn db:rollback`
+Reverts the last applied batch of migrations.
+
+```bash
+# Rollback 1 step
+pogn db:rollback
+
+# Rollback 2 steps
+pogn db:rollback 2
+```
+
+---
+
+### `pogn db:status`
+Displays the migration status table, applied timestamps, and batch numbers.
+
+```bash
+pogn db:status
+```
+
+---
+
+### `pogn db:new`
+Creates a timestamped and versioned `.up.sql` and `.down.sql` migration pair.
+
+```bash
+pogn db:new add_user_avatar
+```
+
+---
+
+## 3. Scaffolding & Architecture
 
 ### `pogn add table`
 Generates the complete 5-tier backend (`entity.go`, `repository.go`, `service.go`, `handler.go`) and frontend route (`app/<name>/page.html`) for a new database entity.
 
 ```bash
-# Syntax
-pogn add table <table-name> [flags]
-
-# Examples
 pogn add table cart
 pogn add table orders
-pogn add table feedback
 ```
-
-**Created Artifacts:**
-- `server/<name>/entity.go` (Go struct)
-- `server/<name>/repository.go` (Parameterized SQL repository)
-- `server/<name>/service.go` (Domain business logic)
-- `server/<name>/handler.go` (HTTP action handler)
-- `app/<name>/page.html` (Frontend view and form)
 
 ---
 
@@ -148,13 +184,8 @@ pogn add table feedback
 Scaffolds a standalone frontend route page in `app/` without backend CRUD boilerplate.
 
 ```bash
-# Syntax
-pogn add route <path> [flags]
-
-# Examples
 pogn add route /about
 pogn add route /faq
-pogn add route /dashboard/analytics
 ```
 
 ---
@@ -163,9 +194,7 @@ pogn add route /dashboard/analytics
 Deletes all backend tiers (`server/<name>/`) and the matching frontend view (`app/<name>/`).
 
 ```bash
-# Examples
 pogn remove table cart
-pogn rm table orders
 ```
 
 ---
@@ -174,9 +203,7 @@ pogn rm table orders
 Deletes a standalone route directory from `app/`.
 
 ```bash
-# Examples
 pogn remove route /faq
-pogn rm route /about
 ```
 
 ---
@@ -194,35 +221,20 @@ pogn inspect
 Parses the Go AST and HTML templates to emit the Pogonian Intermediate Representation (IR) and dependency graph in JSON or YAML.
 
 ```bash
-pogn analyze
 pogn analyze --format=json
-pogn analyze --format=yaml
 ```
 
 ---
 
-## 3. Diagnostics & Blast Radius Analysis
+## 4. Diagnostics & Blast Radius Analysis
 
 ### `pogn impact`
 Calculates the blast radius of modifying a specific file, struct, or feature, identifying all affected routes, handlers, services, repositories, database schemas, and AI prompt context.
 
 ```bash
-# Syntax
-pogn impact <target> [flags]
-
-# Examples
 pogn impact server/products/service.go
 pogn impact cart
-pogn impact products --ai
 ```
-
-**Output Includes:**
-- Impact Level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`)
-- Affected Routes
-- Affected Handlers & Services
-- Affected Database Entities
-- Potential Breaking Risks (e.g. signature changes)
-- AI Subgraph Token Optimization Scope
 
 ---
 
@@ -239,12 +251,7 @@ pogn doctor
 Explains the full-stack architecture flow (Browser &rarr; Trie Router &rarr; Handler &rarr; Service &rarr; Repository &rarr; Database) for the whole application or for a specific feature.
 
 ```bash
-# Whole app explanation
-pogn explain
-
-# Specific feature explanation
 pogn explain products
-pogn explain cart
 ```
 
 ---
@@ -253,14 +260,7 @@ pogn explain cart
 Generates a structured architecture blueprint as a Mermaid graph diagram, JSON schema, or YAML export.
 
 ```bash
-# Mermaid graph (default)
 pogn blueprint
-
-# JSON export
-pogn blueprint --format=json
-
-# YAML export
-pogn blueprint --format=yaml
 ```
 
 ---
@@ -274,15 +274,13 @@ pogn docs
 
 ---
 
-## 4. Secrets, Security & Maintenance
+## 5. Secrets, Security & Benchmarks
 
 ### `pogn secret` / `pogn key:generate`
 Generates a new cryptographically secure 256-bit `APP_KEY` and updates your local `.env` file.
 
 ```bash
 pogn secret
-# or
-pogn key:generate
 ```
 
 ---
@@ -306,7 +304,7 @@ pogn reset
 ---
 
 ### `pogn security audit`
-Performs static AST security auditing against SQL injections, hardcoded secret keys, insecure password hashes, CSRF vulnerabilities, and path traversals.
+Performs static AST security auditing and automated dynamic probes against SQL injections, hardcoded secret keys, CSRF vulnerabilities, and path traversals.
 
 ```bash
 pogn security audit
@@ -315,29 +313,38 @@ pogn security audit
 ---
 
 ### `pogn benchmark`
-Runs the MSc empirical research evaluation benchmark comparing Pogonian metrics (TTFB, JS bundle size, AI context tokens) against traditional stacks.
+Runs research evaluation benchmarks and high-throughput scale stress tests.
 
 ```bash
+# Standard evaluation benchmark
 pogn benchmark
+
+# 10,000+ route stress benchmark (Trie vs Regex performance)
+pogn benchmark --stress --routes=10000 --lookups=100000
 ```
 
 ---
 
-## 5. AI & Legacy Migration
+## 6. AI & Legacy Migration
 
-### `pogn ai`
-Generates an architecture-aware implementation plan for a new feature and produces minimal sub-graph token context.
+### `pogn ai` & `pogn ai rollback`
+Generates an architecture-aware implementation plan using exact BPE tokenizer measurements, sandbox validation, and automated snapshotting.
 
 ```bash
-# Examples
+# Plan feature with token estimation
 pogn ai "Add shopping cart with stripe checkout"
-pogn ai "Add user profiles and avatar uploads"
+
+# Apply feature with permission check and sandbox validation
+pogn ai "Add shopping cart with stripe checkout" --apply
+
+# Rollback last applied AI modifications
+pogn ai rollback
 ```
 
 ---
 
 ### `pogn import`
-Analyzes legacy React, Next.js, Vue, or Express codebases and extracts route hierarchies and components.
+Analyzes legacy React, Next.js, Vue, or Express codebases and extracts route hierarchies and behavioral interaction patterns.
 
 ```bash
 pogn import /path/to/legacy-react-app

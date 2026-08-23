@@ -42,11 +42,20 @@ func TestServer_FormActionAndDynamicRoute(t *testing.T) {
 		t.Errorf("Expected empty inventory message, got:\n%s", string(body))
 	}
 
+	// Extract CSRF cookie
+	csrfCookie := ""
+	for _, c := range res.Cookies() {
+		if c.Name == "_pogn_csrf" {
+			csrfCookie = c.Value
+		}
+	}
+
 	// 2. Submit Form: POST /products to create a new product
 	formData := url.Values{
 		"name":        {"Mechanical Keyboard"},
 		"price":       {"129.99"},
 		"description": {"Custom mechanical keyboard with RGB switches"},
+		"_csrf":       {csrfCookie},
 	}
 
 	postReq, err := http.NewRequest("POST", ts.URL+"/products", strings.NewReader(formData.Encode()))
@@ -54,7 +63,10 @@ func TestServer_FormActionAndDynamicRoute(t *testing.T) {
 		t.Fatalf("Failed to create POST request: %v", err)
 	}
 	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	postReq.Header.Set("X-Pogonian-Request", "true")
+	postReq.Header.Set("X-CSRF-Token", csrfCookie)
+	if csrfCookie != "" {
+		postReq.AddCookie(&http.Cookie{Name: "_pogn_csrf", Value: csrfCookie})
+	}
 
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {

@@ -70,14 +70,34 @@ DATABASE_URL=sqlite://data.db
 	return envPath, nil
 }
 
-// LoadEnv reads a .env file and sets environment variables in os.Setenv if not already set.
+// LoadEnv reads cascading .env files (.env, .env.local, .env.<env>, .env.<env>.local) in order of precedence.
 func LoadEnv(projectDir string) map[string]string {
-	envPath := filepath.Join(projectDir, ".env")
 	envMap := make(map[string]string)
 
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		appEnv = "development"
+	}
+
+	// Loading order from lowest to highest precedence
+	candidates := []string{
+		".env",
+		".env.local",
+		fmt.Sprintf(".env.%s", appEnv),
+		fmt.Sprintf(".env.%s.local", appEnv),
+	}
+
+	for _, cand := range candidates {
+		loadSingleEnvFile(filepath.Join(projectDir, cand), envMap)
+	}
+
+	return envMap
+}
+
+func loadSingleEnvFile(envPath string, envMap map[string]string) {
 	file, err := os.Open(envPath)
 	if err != nil {
-		return envMap
+		return
 	}
 	defer file.Close()
 
@@ -105,6 +125,4 @@ func LoadEnv(projectDir string) map[string]string {
 			}
 		}
 	}
-
-	return envMap
 }

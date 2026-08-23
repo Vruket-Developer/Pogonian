@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -26,9 +29,9 @@ type User struct {
 
 // Session represents an active authenticated session.
 type Session struct {
-	ID        string
-	User      *User
-	ExpiresAt time.Time
+	ID        string    `json:"id"`
+	User      *User     `json:"user"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // SessionStore defines the pluggable persistence contract for sessions.
@@ -88,7 +91,7 @@ func (m *MemorySessionStore) Cleanup() error {
 	return nil
 }
 
-// SQLiteSessionStore provides persistent cross-restart session storage.
+// SQLiteSessionStore provides persistent cross-restart session storage in SQL databases.
 type SQLiteSessionStore struct {
 	db *sql.DB
 }
@@ -156,6 +159,88 @@ func (s *SQLiteSessionStore) Cleanup() error {
 	return err
 }
 
+// FileSessionStore provides persistent disk-backed JSON session storage.
+type FileSessionStore struct {
+	dir string
+	mu  sync.RWMutex
+}
+
+func NewFileSessionStore(dir string) (*FileSessionStore, error) {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create session directory: %w", err)
+	}
+	return &FileSessionStore{dir: dir}, nil
+}
+
+func (f *FileSessionStore) sessionPath(id string) string {
+	return filepath.Join(f.dir, "sess_"+id+".json")
+}
+
+func (f *FileSessionStore) Save(sess *Session) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	data, err := json.Marshal(sess)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(f.sessionPath(sess.ID), data, 0600)
+}
+
+func (f *FileSessionStore) Get(sessionID string) (*Session, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	path := f.sessionPath(sessionID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, ErrSessionNotFound
+	}
+
+	var sess Session
+	if err := json.Unmarshal(data, &sess); err != nil {
+		return nil, err
+	}
+
+	if time.Now().After(sess.ExpiresAt) {
+		_ = os.Remove(path)
+		return nil, ErrSessionNotFound
+	}
+
+	return &sess, nil
+}
+
+func (f *FileSessionStore) Delete(sessionID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return os.Remove(f.sessionPath(sessionID))
+}
+
+func (f *FileSessionStore) Cleanup() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	entries, err := os.ReadDir(f.dir)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(f.dir, entry.Name())
+		if data, err := os.ReadFile(path); err == nil {
+			var sess Session
+			if err := json.Unmarshal(data, &sess); err == nil && now.After(sess.ExpiresAt) {
+				_ = os.Remove(path)
+			}
+		}
+	}
+	return nil
+}
+
 // SessionManager manages user sessions via a pluggable store.
 type SessionManager struct {
 	store    SessionStore
@@ -172,7 +257,7 @@ func NewSessionManager(store SessionStore, duration time.Duration) *SessionManag
 	}
 }
 
-// SetStore dynamically upgrades or swaps the session store (e.g. to SQLite).
+// SetStore dynamically upgrades or swaps the session store.
 func (sm *SessionManager) SetStore(store SessionStore) {
 	sm.store = store
 }
@@ -195,16 +280,25 @@ func (sm *SessionManager) Create(w http.ResponseWriter, user *User) (*Session, e
 		return nil, fmt.Errorf("failed to persist session: %w", err)
 	}
 
+	secure := os.Getenv("APP_ENV") == "production"
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    sessionID,
 		Path:     "/",
 		Expires:  sess.ExpiresAt,
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
 	return sess, nil
+}
+
+// RegenerateSession creates a new session ID for an existing session (Session Fixation Prevention).
+func (sm *SessionManager) RegenerateSession(w http.ResponseWriter, r *http.Request, user *User) (*Session, error) {
+	sm.Destroy(w, r)
+	return sm.Create(w, user)
 }
 
 // Get retrieves the active session from the request cookie.

@@ -26,17 +26,19 @@ type AIContext struct {
 
 // ContextEngine extracts token-efficient architecture context for AI agents.
 type ContextEngine struct {
-	ProjectDir string
-	AppIR      *ir.Application
-	Graph      *architecture.DependencyGraph
+	ProjectDir   string
+	AppIR        *ir.Application
+	Graph        *architecture.DependencyGraph
+	TokenCounter *TokenCounter
 }
 
-// NewContextEngine creates a new AI Context Engine.
+// NewContextEngine creates a new AI Context Engine with BPE Tokenizer.
 func NewContextEngine(projectDir string, appIR *ir.Application, graph *architecture.DependencyGraph) *ContextEngine {
 	return &ContextEngine{
-		ProjectDir: projectDir,
-		AppIR:      appIR,
-		Graph:      graph,
+		ProjectDir:   projectDir,
+		AppIR:        appIR,
+		Graph:        graph,
+		TokenCounter: NewTokenCounter(),
 	}
 }
 
@@ -49,16 +51,15 @@ func (e *ContextEngine) ExtractContext(prompt string) (*AIContext, error) {
 	relevantEntities := make([]string, 0)
 	relevantRoutes := make([]string, 0)
 
-	// 1. Identify relevant entities & modules from prompt
+	// 1. Identify relevant entities & modules from prompt using semantic symbol matching
 	matchedModules := make(map[string]bool)
 	for _, word := range words {
-		// Clean punctuation
 		cleaned := strings.Trim(word, `.,!?"'()[]`)
 		if len(cleaned) <= 2 {
 			continue
 		}
 
-		// Check against IR entities
+		// Match entities in IR
 		for _, ent := range e.AppIR.Entities {
 			if strings.Contains(strings.ToLower(ent.Name), cleaned) || strings.Contains(cleaned, strings.ToLower(ent.Name)) {
 				relevantEntities = append(relevantEntities, ent.Name)
@@ -66,7 +67,7 @@ func (e *ContextEngine) ExtractContext(prompt string) (*AIContext, error) {
 			}
 		}
 
-		// Check against IR routes
+		// Match routes in IR
 		for _, rt := range e.AppIR.Routes {
 			if strings.Contains(strings.ToLower(rt.Path), cleaned) {
 				relevantRoutes = append(relevantRoutes, rt.Path)
@@ -118,11 +119,12 @@ func (e *ContextEngine) ExtractContext(prompt string) (*AIContext, error) {
 	relevantEntities = uniqueStrings(relevantEntities)
 	relevantRoutes = uniqueStrings(relevantRoutes)
 
-	// 3. Compute Token Savings
-	fullTokens := e.estimateFullRepoTokens()
-	scopedTokens := estimateTokensForFiles(relevantFiles)
+	// 3. Compute Real Token Counts using BPE Tokenizer
+	allFiles := e.discoverAllCodeFiles()
+	fullTokens := e.TokenCounter.CountRepositoryTokens(allFiles)
+	scopedTokens := e.TokenCounter.CountRepositoryTokens(relevantFiles)
 	if scopedTokens == 0 {
-		scopedTokens = 350 // minimal schema tokens
+		scopedTokens = 250 // minimal schema baseline
 	}
 
 	savings := 0.0
@@ -157,38 +159,26 @@ func (e *ContextEngine) ExtractContext(prompt string) (*AIContext, error) {
 	}, nil
 }
 
-func (e *ContextEngine) estimateFullRepoTokens() int {
-	totalBytes := 0
+func (e *ContextEngine) discoverAllCodeFiles() []string {
+	var files []string
 	_ = filepath.WalkDir(e.ProjectDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		// Skip binary and build artifacts
-		if strings.Contains(path, "node_modules") || strings.Contains(path, "bin") || strings.Contains(path, ".git") {
+		// Skip binaries, hidden git dirs, dependencies, build caches
+		rel, _ := filepath.Rel(e.ProjectDir, path)
+		if strings.HasPrefix(rel, ".") || strings.Contains(rel, "node_modules") ||
+			strings.Contains(rel, "dist") || strings.Contains(rel, "bin") {
 			return nil
 		}
-		info, err := d.Info()
-		if err == nil {
-			totalBytes += int(info.Size())
+
+		ext := filepath.Ext(path)
+		if ext == ".go" || ext == ".html" || ext == ".css" || ext == ".js" || ext == ".yaml" || ext == ".ai" || ext == ".sql" {
+			files = append(files, path)
 		}
 		return nil
 	})
-	// Rule of thumb: ~4 bytes per token
-	tokens := totalBytes / 4
-	if tokens < 1200 {
-		tokens = 2500
-	}
-	return tokens
-}
-
-func estimateTokensForFiles(files []string) int {
-	totalBytes := 0
-	for _, f := range files {
-		if info, err := os.Stat(f); err == nil {
-			totalBytes += int(info.Size())
-		}
-	}
-	return totalBytes / 4
+	return files
 }
 
 func uniqueStrings(slice []string) []string {
