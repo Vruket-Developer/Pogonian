@@ -16,16 +16,40 @@ import (
 	"pogonian/internal/router"
 )
 
-// RenderContext holds data available to HTML templates.
+// RenderContext holds data available to HTML templates and components.
 type RenderContext struct {
-	AppName   string
-	Title     string
-	Params    map[string]string
-	Query     map[string]string
-	Data      interface{}
-	CSRFToken string
-	Content   template.HTML
-	Meta      map[string]interface{}
+	AppName   string                 `json:"app_name"`
+	Title     string                 `json:"title"`
+	Params    map[string]string      `json:"params"`
+	Query     map[string]string      `json:"query"`
+	Data      interface{}            `json:"data"`
+	CSRFToken string                 `json:"csrf_token"`
+	Content   template.HTML          `json:"content"`
+	Meta      map[string]interface{} `json:"meta"`
+	Class     string                 `json:"class"`
+	Props     map[string]interface{} `json:"props"`
+	User      interface{}            `json:"user"`
+	Year      int                    `json:"year"`
+}
+
+// CurrentYear returns the active year.
+func (c RenderContext) CurrentYear() int {
+	return time.Now().Year()
+}
+
+// Get safely retrieves a property from Props or Meta.
+func (c RenderContext) Get(key string) interface{} {
+	if c.Props != nil {
+		if v, ok := c.Props[key]; ok {
+			return v
+		}
+	}
+	if c.Meta != nil {
+		if v, ok := c.Meta[key]; ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // CachedTemplate holds a precompiled template chain for a route.
@@ -99,7 +123,7 @@ func (r *Renderer) precompileRoute(route *router.Route) error {
 	}
 
 	rawPage := r.preprocessComponentTags(string(pageBytes), knownComps)
-	pageTmpl := template.New("page").Funcs(r.customFuncs)
+	pageTmpl := template.New("page").Option("missingkey=zero").Funcs(r.customFuncs)
 	pageTmpl = r.loadComponents(pageTmpl)
 	pageTmpl, err = pageTmpl.Parse(rawPage)
 	if err != nil {
@@ -114,7 +138,7 @@ func (r *Renderer) precompileRoute(route *router.Route) error {
 		}
 
 		rawLayout := r.preprocessComponentTags(string(layoutBytes), knownComps)
-		lt := template.New(filepath.Base(layoutPath)).Funcs(r.customFuncs)
+		lt := template.New(filepath.Base(layoutPath)).Option("missingkey=zero").Funcs(r.customFuncs)
 		lt = r.loadComponents(lt)
 		lt, err = lt.Parse(rawLayout)
 		if err != nil {
@@ -146,6 +170,8 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		Data:      data,
 		CSRFToken: csrfToken,
 		Meta:      make(map[string]interface{}),
+		Props:     make(map[string]interface{}),
+		Year:      time.Now().Year(),
 	}
 
 	if !r.DevMode {
@@ -166,7 +192,7 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 	}
 
 	rawPage := r.preprocessComponentTags(string(pageBytes), knownComps)
-	pageTmpl := template.New("page").Funcs(r.customFuncs)
+	pageTmpl := template.New("page").Option("missingkey=zero").Funcs(r.customFuncs)
 	pageTmpl = r.loadComponents(pageTmpl)
 	pageTmpl, err = pageTmpl.Parse(rawPage)
 	if err != nil {
@@ -188,7 +214,7 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		}
 
 		rawLayout := r.preprocessComponentTags(string(layoutBytes), knownComps)
-		layoutTmpl := template.New(filepath.Base(layoutPath)).Funcs(r.customFuncs)
+		layoutTmpl := template.New(filepath.Base(layoutPath)).Option("missingkey=zero").Funcs(r.customFuncs)
 		layoutTmpl = r.loadComponents(layoutTmpl)
 		layoutTmpl, err = layoutTmpl.Parse(rawLayout)
 		if err != nil {
@@ -301,6 +327,8 @@ func (r *Renderer) discoverKnownComponents() map[string]bool {
 
 // loadComponents imports and registers component templates from /app/components/, /components/, and subfolders like /module/.
 func (r *Renderer) loadComponents(t *template.Template) *template.Template {
+	t = t.Option("missingkey=zero")
+
 	dirsToScan := []string{
 		filepath.Join(r.BaseDir, "app", "components"),
 		filepath.Join(r.BaseDir, "components"),
@@ -341,14 +369,14 @@ func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 			t, _ = t.Parse(content)
 
 			// Register aliases
-			t, _ = t.New(lowerShort).Parse(content)
-			t, _ = t.New(shortName).Parse(content)
-			t, _ = t.New("components/" + relUnix).Parse(content)
-			t, _ = t.New("app/components/" + relUnix).Parse(content)
+			t, _ = t.New(lowerShort).Option("missingkey=zero").Parse(content)
+			t, _ = t.New(shortName).Option("missingkey=zero").Parse(content)
+			t, _ = t.New("components/" + relUnix).Option("missingkey=zero").Parse(content)
+			t, _ = t.New("app/components/" + relUnix).Option("missingkey=zero").Parse(content)
 
 			relNoExt := strings.TrimSuffix(relUnix, ".html")
-			t, _ = t.New(relUnix).Parse(content)
-			t, _ = t.New(relNoExt).Parse(content)
+			t, _ = t.New(relUnix).Option("missingkey=zero").Parse(content)
+			t, _ = t.New(relNoExt).Option("missingkey=zero").Parse(content)
 
 			return nil
 		})
