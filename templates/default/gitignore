@@ -1,0 +1,6 @@
+# Pogonian generated files
+dist/
+.pogonian/cache/
+*.db
+*.log
+.test-work/

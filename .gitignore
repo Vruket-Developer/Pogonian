@@ -1,0 +1,8 @@
+# Pogonian framework repository gitignore
+bin/
+dist/
+.test-work/
+*.test
+*.out
+*.db
+*.log

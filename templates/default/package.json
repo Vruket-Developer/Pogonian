@@ -1,0 +1,11 @@
+{
+  "name": "{{ .AppName }}",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Pogonian application with HTML-first frontend and Go backend",
+  "scripts": {
+    "dev": "pogn dev",
+    "build": "pogn build",
+    "check": "pogn check"
+  }
+}

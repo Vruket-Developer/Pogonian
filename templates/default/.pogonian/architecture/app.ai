@@ -1,0 +1,16 @@
+application: {{ .AppName }}
+
+frontend:
+  rendering: server
+  runtime: pogonian-runtime
+  routing: filesystem
+
+backend:
+  language: go
+  architecture: modular-monolith
+
+flow:
+  page → handler → service → repository → database
+
+modules:
+  - core

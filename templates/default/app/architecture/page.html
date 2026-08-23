@@ -1,0 +1,27 @@
+<section class="content-section">
+    <h1>Application Architecture</h1>
+    <p>Pogonian analyzes and enforces your architectural flow automatically.</p>
+
+    <div class="architecture-diagram">
+        <div class="arch-box">Client / Browser</div>
+        <div class="arch-arrow">&darr; <span>(Soft Nav / Forms)</span></div>
+        <div class="arch-box">Router &amp; Middleware</div>
+        <div class="arch-arrow">&darr;</div>
+        <div class="arch-box highlight">Handler (HTTP layer)</div>
+        <div class="arch-arrow">&darr;</div>
+        <div class="arch-box highlight">Service (Business Logic)</div>
+        <div class="arch-arrow">&darr;</div>
+        <div class="arch-box highlight">Repository (Data Access)</div>
+        <div class="arch-arrow">&darr;</div>
+        <div class="arch-box">Database</div>
+    </div>
+
+    <div class="card" style="margin-top: 2rem;">
+        <h3>Architecture Rules</h3>
+        <p>Run <code>pogn check</code> to ensure layers aren't bypassing boundaries (e.g. Handlers querying the database directly).</p>
+    </div>
+
+    <p style="margin-top: 1.5rem;">
+        <a href="/" class="btn btn-secondary">&larr; Back to Home</a>
+    </p>
+</section>
