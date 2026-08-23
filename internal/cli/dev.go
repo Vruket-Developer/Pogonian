@@ -15,6 +15,8 @@ type DevOptions struct {
 	Port       int
 	Host       string
 	ProjectDir string
+	KillPort   bool
+	StrictPort bool
 }
 
 // RunDev executes `pogn dev` / `pogn run`.
@@ -41,6 +43,10 @@ func RunDev(args []string) error {
 			}
 		case strings.HasPrefix(arg, "--host="):
 			opts.Host = strings.TrimPrefix(arg, "--host=")
+		case arg == "--kill" || arg == "--kill-port" || arg == "-k" || arg == "--clear":
+			opts.KillPort = true
+		case arg == "--strict" || arg == "--strict-port":
+			opts.StrictPort = true
 		case !strings.HasPrefix(arg, "-"):
 			opts.ProjectDir = arg
 		}
@@ -68,6 +74,9 @@ func RunDev(args []string) error {
 	if opts.Host != "" {
 		srv.Config.Server.Host = opts.Host
 	}
+
+	srv.KillPortOnConflict = opts.KillPort
+	srv.StrictPort = opts.StrictPort
 
 	return srv.Start()
 }

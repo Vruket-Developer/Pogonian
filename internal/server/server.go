@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,15 +29,17 @@ type ActionHandlerFunc func(w http.ResponseWriter, r *http.Request, params map[s
 
 // Server handles HTTP requests and backend architecture for a Pogonian project.
 type Server struct {
-	ProjectDir  string
-	Config      *config.Config
-	Router      *router.Router
-	Renderer    *compiler.Renderer
-	DB          *database.DB
-	DataLoaders map[string]DataLoaderFunc
-	Actions     map[string]ActionHandlerFunc
-	DevMode     bool
-	httpServer  *http.Server
+	ProjectDir         string
+	Config             *config.Config
+	Router             *router.Router
+	Renderer           *compiler.Renderer
+	DB                 *database.DB
+	DataLoaders        map[string]DataLoaderFunc
+	Actions            map[string]ActionHandlerFunc
+	DevMode            bool
+	KillPortOnConflict bool
+	StrictPort         bool
+	httpServer         *http.Server
 }
 
 // responseRecorder captures the HTTP status code for logging.
@@ -389,11 +393,54 @@ func (s *Server) logRequest(method, path string, status int, duration time.Durat
 		method, path, statusColor, status, duration.Round(time.Microsecond))
 }
 
-// Start launches the HTTP server listening on the configured host and port.
+// Start launches the HTTP server listening on the configured host and port with automatic fallback.
 func (s *Server) Start() error {
-	addr := fmt.Sprintf("%s:%d", s.Config.Server.Host, s.Config.Server.Port)
+	host := s.Config.Server.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := s.Config.Server.Port
+	if port <= 0 {
+		port = 3000
+	}
+
+	// 1. If user passed --kill / -k, clear any zombie process occupying the port
+	if s.KillPortOnConflict {
+		if killed := killProcessOnPort(port); killed {
+			fmt.Println()
+			fmt.Printf("  \x1b[1;33m⚡ Cleared process occupying port %d\x1b[0m\n", port)
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+
+	// 2. Attempt to bind listener with automatic fallback to next available port (3000 -> 3001 -> 3002...)
+	var listener net.Listener
+	var err error
+	originalPort := port
+
+	for attempts := 0; attempts < 20; attempts++ {
+		addr := fmt.Sprintf("%s:%d", host, port)
+		listener, err = net.Listen("tcp", addr)
+		if err == nil {
+			break
+		}
+
+		if s.StrictPort {
+			return fmt.Errorf("port %d is in use and --strict-port is enabled: %w", port, err)
+		}
+
+		port++
+	}
+
+	if listener == nil {
+		return fmt.Errorf("failed to bind to any open port starting from %d: %w", originalPort, err)
+	}
+
+	s.Config.Server.Port = port
+	actualAddr := listener.Addr().String()
+
 	s.httpServer = &http.Server{
-		Addr:    addr,
+		Addr:    actualAddr,
 		Handler: s.Handler(),
 	}
 
@@ -403,8 +450,12 @@ func (s *Server) Start() error {
 	}
 
 	fmt.Println()
-	fmt.Printf("  \x1b[1;36mPogonian %s\x1b[0m \x1b[1;30mv0.1.0\x1b[0m\n", modeName)
-	fmt.Printf("  ➜  \x1b[1mLocal:\x1b[0m   \x1b[1;32mhttp://%s\x1b[0m\n", addr)
+	fmt.Printf("  \x1b[1;36mPogonian %s\x1b[0m \x1b[1;30mv0.2.0\x1b[0m\n", modeName)
+	if port != originalPort {
+		fmt.Printf("  \x1b[1;33m⚠️  Port %d was busy. Automatically switched to port %d\x1b[0m\n", originalPort, port)
+		fmt.Printf("  \x1b[1;30m↳ Tip: Run with '-k' or '--kill' to clear port %d: pogn dev -k\x1b[0m\n", originalPort)
+	}
+	fmt.Printf("  ➜  \x1b[1mLocal:\x1b[0m   \x1b[1;32mhttp://%s\x1b[0m\n", actualAddr)
 	fmt.Printf("  ➜  \x1b[1mApp:\x1b[0m     %s\n", s.Config.Name)
 	fmt.Printf("  ➜  \x1b[1mRoutes:\x1b[0m  %d discovered\n", len(s.Router.Routes))
 	for _, route := range s.Router.Routes {
@@ -413,7 +464,20 @@ func (s *Server) Start() error {
 	fmt.Println()
 	fmt.Printf("  \x1b[1;30mReady for requests. Press Ctrl+C to stop.\x1b[0m\n\n")
 
-	return s.httpServer.ListenAndServe()
+	return s.httpServer.Serve(listener)
+}
+
+func killProcessOnPort(port int) bool {
+	// 1. Try fuser -k on linux
+	if err := exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)).Run(); err == nil {
+		return true
+	}
+	// 2. Try lsof + kill
+	cmd := fmt.Sprintf("lsof -ti tcp:%d | xargs -r kill -9", port)
+	if err := exec.Command("sh", "-c", cmd).Run(); err == nil {
+		return true
+	}
+	return false
 }
 
 // Shutdown gracefully shuts down the server without interrupting active connections.
