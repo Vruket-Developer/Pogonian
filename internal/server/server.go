@@ -10,18 +10,29 @@ import (
 
 	"pogonian/internal/compiler"
 	"pogonian/internal/config"
+	"pogonian/internal/database"
+	"pogonian/internal/middleware"
 	"pogonian/internal/router"
 	"pogonian/runtime"
 )
 
-// Server handles HTTP requests for a Pogonian project.
+// DataLoaderFunc loads dynamic data for a route before rendering.
+type DataLoaderFunc func(r *http.Request, params map[string]string) (interface{}, error)
+
+// ActionHandlerFunc handles form submissions (POST/PUT/DELETE) for a route.
+type ActionHandlerFunc func(w http.ResponseWriter, r *http.Request, params map[string]string) error
+
+// Server handles HTTP requests and backend architecture for a Pogonian project.
 type Server struct {
-	ProjectDir string
-	Config     *config.Config
-	Router     *router.Router
-	Renderer   *compiler.Renderer
-	DevMode    bool
-	httpServer *http.Server
+	ProjectDir  string
+	Config      *config.Config
+	Router      *router.Router
+	Renderer    *compiler.Renderer
+	DB          *database.DB
+	DataLoaders map[string]DataLoaderFunc
+	Actions     map[string]ActionHandlerFunc
+	DevMode     bool
+	httpServer  *http.Server
 }
 
 // responseRecorder captures the HTTP status code for logging.
@@ -35,11 +46,10 @@ func (rec *responseRecorder) WriteHeader(code int) {
 	rec.ResponseWriter.WriteHeader(code)
 }
 
-// New creates a new Pogonian HTTP server instance.
+// New creates a new Pogonian HTTP server instance with DB and middleware.
 func New(projectDir string, devMode bool) (*Server, error) {
 	cfg, err := config.Load(projectDir)
 	if err != nil {
-		// Fallback to default if no yaml found
 		cfg = config.DefaultConfig(filepath.Base(projectDir))
 	}
 
@@ -51,19 +61,57 @@ func New(projectDir string, devMode bool) (*Server, error) {
 
 	rend := compiler.NewRenderer(cfg.Name, projectDir)
 
-	s := &Server{
-		ProjectDir: projectDir,
-		Config:     cfg,
-		Router:     r,
-		Renderer:   rend,
-		DevMode:    devMode,
+	var db *database.DB
+	if cfg.Database.Driver == "sqlite" && cfg.Database.Path != "" {
+		dbPath := cfg.Database.Path
+		if !filepath.IsAbs(dbPath) && dbPath != ":memory:" {
+			dbPath = filepath.Join(projectDir, dbPath)
+		}
+		dbConn, err := database.Open(dbPath)
+		if err == nil {
+			db = dbConn
+		}
 	}
+
+	s := &Server{
+		ProjectDir:  projectDir,
+		Config:      cfg,
+		Router:      r,
+		Renderer:    rend,
+		DB:          db,
+		DataLoaders: make(map[string]DataLoaderFunc),
+		Actions:     make(map[string]ActionHandlerFunc),
+		DevMode:     devMode,
+	}
+
+	s.setupBuiltinModules()
 
 	return s, nil
 }
 
-// ServeHTTP handles incoming HTTP requests through the Pogonian pipeline.
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// RegisterLoader registers a data loader for a specific route path (e.g. "/products" or "/products/:id").
+func (s *Server) RegisterLoader(path string, loader DataLoaderFunc) {
+	s.DataLoaders[path] = loader
+}
+
+// RegisterAction registers a form POST action handler for a specific route path.
+func (s *Server) RegisterAction(path string, action ActionHandlerFunc) {
+	s.Actions[path] = action
+}
+
+// Handler returns the fully wrapped HTTP handler with middleware.
+func (s *Server) Handler() http.Handler {
+	baseHandler := http.HandlerFunc(s.handleRequest)
+
+	return middleware.Chain(
+		baseHandler,
+		middleware.Recovery(s.DevMode),
+		middleware.RateLimit(500, time.Minute),
+		middleware.CSRF(false), // CSRF validation (soft-nav friendly)
+	)
+}
+
+func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -93,6 +141,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 4. Match filesystem route
 	route, params := s.Router.Match(path)
 	if route != nil {
+		// Handle POST Form Actions
+		if r.Method == http.MethodPost {
+			if action, exists := s.Actions[route.Path]; exists {
+				if err := action(rec, r, params); err != nil {
+					rec.WriteHeader(http.StatusBadRequest)
+					rec.Header().Set("Content-Type", "text/html; charset=utf-8")
+					fmt.Fprintf(rec, "<h1>Action Error</h1><p>%v</p>", err)
+					return
+				}
+				// If action wrote response or redirected, we are done
+				if rec.statusCode != http.StatusOK {
+					return
+				}
+			}
+		}
+
+		// Handle Data Loading
+		var data interface{}
+		if loader, exists := s.DataLoaders[route.Path]; exists {
+			loadedData, err := loader(r, params)
+			if err != nil {
+				rec.WriteHeader(http.StatusInternalServerError)
+				rec.Header().Set("Content-Type", "text/html; charset=utf-8")
+				fmt.Fprintf(rec, "<h1>Data Loading Error</h1><p>%v</p>", err)
+				return
+			}
+			data = loadedData
+		}
+
 		query := make(map[string]string)
 		for k, v := range r.URL.Query() {
 			if len(v) > 0 {
@@ -100,7 +177,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		html, err := s.Renderer.Render(route, params, query)
+		csrfToken := middleware.GenerateToken()
+
+		html, err := s.Renderer.Render(route, params, query, data, csrfToken)
 		if err != nil {
 			rec.WriteHeader(http.StatusInternalServerError)
 			rec.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -116,6 +195,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 5. Route Not Found (404)
 	s.handleNotFound(rec, r)
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.Handler().ServeHTTP(w, r)
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) bool {
@@ -188,7 +271,7 @@ func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%d", s.Config.Server.Host, s.Config.Server.Port)
 	s.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: s,
+		Handler: s.Handler(),
 	}
 
 	fmt.Println()
@@ -205,8 +288,11 @@ func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Shutdown gracefully stops the server.
-func (s *Server) Shutdown() error {
+// Close closes the server and database connections.
+func (s *Server) Close() error {
+	if s.DB != nil {
+		_ = s.DB.Close()
+	}
 	if s.httpServer != nil {
 		return s.httpServer.Close()
 	}

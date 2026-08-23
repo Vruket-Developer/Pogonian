@@ -1,0 +1,37 @@
+<section class="content-section">
+    {{ if .Data.Product }}
+    <div style="margin-bottom: 1.5rem;">
+        <a href="/products" class="btn btn-secondary">&larr; Back to Products</a>
+    </div>
+
+    <div class="card" style="max-width: 600px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <span class="badge-pill">Product #{{ .Data.Product.ID }}</span>
+                <h1 style="margin: 0.5rem 0 1rem;">{{ .Data.Product.Name }}</h1>
+            </div>
+            <div style="font-size: 1.75rem; font-weight: 800; color: var(--brand-primary);">
+                ${{ printf "%.2f" .Data.Product.Price }}
+            </div>
+        </div>
+
+        <p style="color: var(--text-secondary); margin: 1.5rem 0; font-size: 1.1rem; line-height: 1.6;">
+            {{ if .Data.Product.Description }}
+                {{ .Data.Product.Description }}
+            {{ else }}
+                <em style="color: var(--text-muted);">No description provided.</em>
+            {{ end }}
+        </p>
+
+        <div style="border-top: 1px solid var(--border-color); padding-top: 1rem; color: var(--text-muted); font-size: 0.85rem;">
+            Dynamic route parameter: <code>id = {{ .Params.id }}</code>
+        </div>
+    </div>
+    {{ else }}
+    <div class="card" style="text-align: center; padding: 3rem;">
+        <h2>Product Not Found</h2>
+        <p style="color: var(--text-secondary); margin: 1rem 0 2rem;">No product matches ID <code>{{ .Params.id }}</code>.</p>
+        <a href="/products" class="btn btn-primary">&larr; Back to Catalog</a>
+    </div>
+    {{ end }}
+</section>

@@ -13,12 +13,14 @@ import (
 
 // RenderContext holds data available to HTML templates.
 type RenderContext struct {
-	AppName string
-	Title   string
-	Params  map[string]string
-	Query   map[string]string
-	Content template.HTML
-	Meta    map[string]interface{}
+	AppName   string
+	Title     string
+	Params    map[string]string
+	Query     map[string]string
+	Data      interface{}
+	CSRFToken string
+	Content   template.HTML
+	Meta      map[string]interface{}
 }
 
 // Renderer compiles and renders filesystem routes with their layout hierarchies.
@@ -36,7 +38,7 @@ func NewRenderer(appName, baseDir string) *Renderer {
 }
 
 // Render compiles the page and its parent layouts into a complete HTML response.
-func (r *Renderer) Render(route *router.Route, params map[string]string, query map[string]string) ([]byte, error) {
+func (r *Renderer) Render(route *router.Route, params map[string]string, query map[string]string, data interface{}, csrfToken string) ([]byte, error) {
 	// 1. Read page content
 	pageBytes, err := os.ReadFile(route.PagePath)
 	if err != nil {
@@ -46,11 +48,13 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 	pageTitle := derivePageTitle(route.Path, r.AppName)
 
 	ctx := RenderContext{
-		AppName: r.AppName,
-		Title:   pageTitle,
-		Params:  params,
-		Query:   query,
-		Meta:    make(map[string]interface{}),
+		AppName:   r.AppName,
+		Title:     pageTitle,
+		Params:    params,
+		Query:     query,
+		Data:      data,
+		CSRFToken: csrfToken,
+		Meta:      make(map[string]interface{}),
 	}
 
 	// Render the page template
