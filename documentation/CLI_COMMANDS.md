@@ -11,6 +11,7 @@ This document provides a complete reference for all available commands in the `p
   - [`pogn dev`](#pogn-dev)
   - [`pogn test`](#pogn-test)
   - [`pogn check`](#pogn-check)
+  - [`pogn tree`](#pogn-tree)
   - [`pogn build`](#pogn-build)
   - [`pogn upgrade`](#pogn-upgrade)
 - [Database & Migrations](#2-database--migrations)
@@ -105,6 +106,27 @@ pogn check [project-dir] [--strict]
 2. HTTP Handlers in `server/` cannot execute raw SQL; they must delegate to Services.
 3. Repositories must encapsulate all database queries.
 4. No circular dependencies across domain packages.
+
+---
+
+### `pogn tree`
+Generates a colorized application, routing, component, and backend directory tree. Shows all filesystem routes mapped to their HTTP endpoints (e.g. `page.html  ➔  GET /products/:id`).
+
+```bash
+# View complete application tree
+pogn tree
+
+# View filesystem routing & UI components only
+pogn tree app
+# or
+pogn tree --app-only
+
+# Output machine-readable JSON format
+pogn tree --json
+
+# Limit recursion depth
+pogn tree --depth=3
+```
 
 ---
 
