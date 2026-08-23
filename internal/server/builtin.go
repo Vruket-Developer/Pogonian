@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"pogonian/internal/auth"
 )
 
 // setupBuiltinModules registers default data loaders and form actions for SQLite entities.
@@ -15,7 +17,8 @@ func (s *Server) setupBuiltinModules() {
 		return
 	}
 
-	// Auto-migrate standard demo entities table (products)
+	// Auto-migrate standard users and demo entities table
+	_ = auth.EnsureUsersTable(s.DB.DB)
 	_ = s.DB.Migrate(`
 		CREATE TABLE IF NOT EXISTS products (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,6 +28,11 @@ func (s *Server) setupBuiltinModules() {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
+
+	// Register Auth Actions
+	s.RegisterAction("/register", auth.HandleRegisterAction(s.DB.DB))
+	s.RegisterAction("/login", auth.HandleLoginAction(s.DB.DB))
+	s.RegisterAction("/logout", auth.HandleLogoutAction())
 
 	// 1. Data Loader for /products
 	s.RegisterLoader("/products", func(r *http.Request, params map[string]string) (interface{}, error) {

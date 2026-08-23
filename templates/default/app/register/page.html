@@ -1,0 +1,34 @@
+<section class="content-section" style="max-width: 480px; margin: 3rem auto;">
+    <div class="card">
+        <h2 style="margin-bottom: 0.5rem; text-align: center;">Create an Account</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-bottom: 1.5rem;">Join your application with native Pogonian Auth.</p>
+
+        <form action="/register" method="post" style="display: flex; flex-direction: column; gap: 1rem;">
+            <input type="hidden" name="_csrf" value="{{ .CSRFToken }}">
+
+            <div>
+                <label style="display: block; margin-bottom: 0.35rem; font-weight: 500; font-size: 0.9rem;">Full Name</label>
+                <input type="text" name="name" placeholder="Alex Developer" required
+                       style="width: 100%; padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-surface-elevated); color: var(--text-primary);">
+            </div>
+            
+            <div>
+                <label style="display: block; margin-bottom: 0.35rem; font-weight: 500; font-size: 0.9rem;">Email Address</label>
+                <input type="email" name="email" placeholder="you@example.com" required
+                       style="width: 100%; padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-surface-elevated); color: var(--text-primary);">
+            </div>
+
+            <div>
+                <label style="display: block; margin-bottom: 0.35rem; font-weight: 500; font-size: 0.9rem;">Password</label>
+                <input type="password" name="password" placeholder="••••••••" required
+                       style="width: 100%; padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-surface-elevated); color: var(--text-primary);">
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;">Create Account</button>
+        </form>
+
+        <p style="text-align: center; margin-top: 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+            Already have an account? <a href="/login" style="color: #38bdf8; font-weight: 600;">Sign in</a>
+        </p>
+    </div>
+</section>

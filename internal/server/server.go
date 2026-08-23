@@ -179,18 +179,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 				}
 
 				if title != "" {
-					// Ensure table exists
-					_, _ = s.DB.Exec(fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-						id INTEGER PRIMARY KEY AUTOINCREMENT,
-						title TEXT NOT NULL,
-						content TEXT,
-						created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-					)`, tableName))
-
-					_, _ = s.DB.Exec(
-						fmt.Sprintf("INSERT INTO %s (title, content, created_at) VALUES (?, ?, ?)", tableName),
-						title, content, time.Now().UTC().Format(time.RFC3339),
-					)
+					_ = s.DB.GenericInsert(tableName, title, content)
 				}
 				http.Redirect(rec, r, route.Path, http.StatusSeeOther)
 				return
@@ -211,24 +200,9 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		} else if s.DB != nil {
 			// Fallback generic SQLite data loader for AI-generated tables
 			tableName := strings.Trim(route.Path, "/")
-			type GenericItem struct {
-				ID      int64
-				Title   string
-				Content string
-			}
-			var items []*GenericItem
-			rows, err := s.DB.Query(fmt.Sprintf("SELECT id, title, content FROM %s ORDER BY id DESC", tableName))
-			if err == nil {
-				defer rows.Close()
-				for rows.Next() {
-					item := &GenericItem{}
-					if err := rows.Scan(&item.ID, &item.Title, &item.Content); err == nil {
-						items = append(items, item)
-					}
-				}
-			}
+			items, _ := s.DB.GenericSelect(tableName)
 			if items == nil {
-				items = make([]*GenericItem, 0)
+				items = make([]*database.GenericRecord, 0)
 			}
 			data = map[string]interface{}{
 				"Items": items,

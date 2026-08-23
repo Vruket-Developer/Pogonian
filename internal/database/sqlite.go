@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -59,4 +60,68 @@ func (db *DB) Migrate(queries ...string) error {
 	}
 
 	return tx.Commit()
+}
+
+// IsSafeIdentifier checks if a table name is purely alphanumeric.
+func IsSafeIdentifier(name string) bool {
+	if len(name) == 0 || len(name) > 64 {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// GenericInsert safely inserts title and content into a dynamic entity table.
+func (db *DB) GenericInsert(table, title, content string) error {
+	if !IsSafeIdentifier(table) {
+		return fmt.Errorf("invalid table identifier: %s", table)
+	}
+
+	createStmt := "CREATE TABLE IF NOT EXISTS " + table + ` (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		title TEXT NOT NULL,
+		content TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);`
+	if _, err := db.Exec(createStmt); err != nil {
+		return err
+	}
+
+	insertStmt := "INSERT INTO " + table + " (title, content, created_at) VALUES (?, ?, ?)"
+	_, err := db.Exec(insertStmt, title, content, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+// GenericRecord represents a standard dynamic row.
+type GenericRecord struct {
+	ID      int64
+	Title   string
+	Content string
+}
+
+// GenericSelect safely reads rows from a dynamic entity table.
+func (db *DB) GenericSelect(table string) ([]*GenericRecord, error) {
+	if !IsSafeIdentifier(table) {
+		return nil, fmt.Errorf("invalid table identifier: %s", table)
+	}
+
+	selectStmt := "SELECT id, title, content FROM " + table + " ORDER BY id DESC"
+	rows, err := db.Query(selectStmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*GenericRecord
+	for rows.Next() {
+		r := &GenericRecord{}
+		if err := rows.Scan(&r.ID, &r.Title, &r.Content); err == nil {
+			items = append(items, r)
+		}
+	}
+	return items, nil
 }
