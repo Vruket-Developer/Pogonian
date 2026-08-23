@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -89,20 +90,19 @@ func (r *Renderer) PrecompileAll(routes []*router.Route) error {
 }
 
 func (r *Renderer) precompileRoute(route *router.Route) error {
-	// Parse page with components
 	pageBytes, err := os.ReadFile(route.PagePath)
 	if err != nil {
 		return fmt.Errorf("failed to read page %s: %w", route.PagePath, err)
 	}
 
+	rawPage := r.preprocessComponentTags(string(pageBytes))
 	pageTmpl := template.New("page").Funcs(r.customFuncs)
 	pageTmpl = r.loadComponents(pageTmpl)
-	pageTmpl, err = pageTmpl.Parse(string(pageBytes))
+	pageTmpl, err = pageTmpl.Parse(rawPage)
 	if err != nil {
 		return fmt.Errorf("failed to parse page template %s: %w", route.PagePath, err)
 	}
 
-	// Parse layout chain with components
 	layoutTmpls := make([]*template.Template, 0, len(route.LayoutPaths))
 	for _, layoutPath := range route.LayoutPaths {
 		layoutBytes, err := os.ReadFile(layoutPath)
@@ -110,9 +110,10 @@ func (r *Renderer) precompileRoute(route *router.Route) error {
 			return fmt.Errorf("failed to read layout %s: %w", layoutPath, err)
 		}
 
+		rawLayout := r.preprocessComponentTags(string(layoutBytes))
 		lt := template.New(filepath.Base(layoutPath)).Funcs(r.customFuncs)
 		lt = r.loadComponents(lt)
-		lt, err = lt.Parse(string(layoutBytes))
+		lt, err = lt.Parse(rawLayout)
 		if err != nil {
 			return fmt.Errorf("failed to parse layout template %s: %w", layoutPath, err)
 		}
@@ -144,7 +145,6 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		Meta:      make(map[string]interface{}),
 	}
 
-	// In production, use precompiled cache if present
 	if !r.DevMode {
 		r.cacheMu.RLock()
 		cached, exists := r.cache[route.Path]
@@ -155,15 +155,15 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		}
 	}
 
-	// Dynamic parse (in dev mode or cache miss)
 	pageBytes, err := os.ReadFile(route.PagePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read page %s: %w", route.PagePath, err)
 	}
 
+	rawPage := r.preprocessComponentTags(string(pageBytes))
 	pageTmpl := template.New("page").Funcs(r.customFuncs)
 	pageTmpl = r.loadComponents(pageTmpl)
-	pageTmpl, err = pageTmpl.Parse(string(pageBytes))
+	pageTmpl, err = pageTmpl.Parse(rawPage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse page template %s: %w", route.PagePath, err)
 	}
@@ -175,7 +175,6 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 
 	currentHTML := pageBuf.String()
 
-	// Wrap through the layout chain (from innermost to outermost)
 	for i := len(route.LayoutPaths) - 1; i >= 0; i-- {
 		layoutPath := route.LayoutPaths[i]
 		layoutBytes, err := os.ReadFile(layoutPath)
@@ -183,9 +182,10 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 			return nil, fmt.Errorf("failed to read layout %s: %w", layoutPath, err)
 		}
 
+		rawLayout := r.preprocessComponentTags(string(layoutBytes))
 		layoutTmpl := template.New(filepath.Base(layoutPath)).Funcs(r.customFuncs)
 		layoutTmpl = r.loadComponents(layoutTmpl)
-		layoutTmpl, err = layoutTmpl.Parse(string(layoutBytes))
+		layoutTmpl, err = layoutTmpl.Parse(rawLayout)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse layout template %s: %w", layoutPath, err)
 		}
@@ -200,9 +200,7 @@ func (r *Renderer) Render(route *router.Route, params map[string]string, query m
 		currentHTML = layoutBuf.String()
 	}
 
-	// Inject Client Runtimes cleanly based on environment
 	currentHTML = r.injectScripts(currentHTML)
-
 	return []byte(currentHTML), nil
 }
 
@@ -229,6 +227,32 @@ func (r *Renderer) executeCached(cached *CachedTemplate, ctx RenderContext) ([]b
 	return []byte(currentHTML), nil
 }
 
+var pognTagRegex = regexp.MustCompile(`(?i)<(?:pogn:|component:)([a-zA-Z0-9_\-]+)\s*(?:/>|></(?:pogn:|component:)[a-zA-Z0-9_\-]+>)`)
+var compNameTagRegex = regexp.MustCompile(`(?i)<component\s+name=["']([a-zA-Z0-9_\-]+)["']\s*(?:/>|></component>)`)
+var customElementRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9_]*)\s*(?:/>|></[A-Z][a-zA-Z0-9_]*>)`)
+
+// preprocessComponentTags automatically expands tags like <pogn:footer />, <component name="footer" />, and <Footer /> into {{ template "footer" . }}
+func (r *Renderer) preprocessComponentTags(html string) string {
+	// 1. Expand <pogn:footer /> or <component:footer />
+	html = pognTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
+
+	// 2. Expand <component name="footer" />
+	html = compNameTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
+
+	// 3. Expand <Footer /> or <Header /> (PascalCase component tags)
+	html = customElementRegex.ReplaceAllStringFunc(html, func(match string) string {
+		submatches := customElementRegex.FindStringSubmatch(match)
+		if len(submatches) > 1 {
+			tagName := submatches[1]
+			lowerName := strings.ToLower(tagName)
+			return fmt.Sprintf(`{{ template "%s" . }}`, lowerName)
+		}
+		return match
+	})
+
+	return html
+}
+
 func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 	compDir := filepath.Join(r.BaseDir, "components")
 	entries, err := os.ReadDir(compDir)
@@ -241,13 +265,13 @@ func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 			path := filepath.Join(compDir, entry.Name())
 			data, err := os.ReadFile(path)
 			if err == nil {
-				// Parse template definition
 				t, _ = t.Parse(string(data))
-				// Also parse with names "components/xxx.html" and "xxx"
 				relName := "components/" + entry.Name()
 				shortName := strings.TrimSuffix(entry.Name(), ".html")
+				lowerShort := strings.ToLower(shortName)
 				t, _ = t.New(relName).Parse(string(data))
 				t, _ = t.New(shortName).Parse(string(data))
+				t, _ = t.New(lowerShort).Parse(string(data))
 			}
 		}
 	}
