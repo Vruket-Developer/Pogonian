@@ -13,6 +13,7 @@ import (
 
 	"pogonian/internal/config"
 	"pogonian/internal/security"
+	"pogonian/internal/version"
 	"pogonian/templates"
 )
 
@@ -79,7 +80,7 @@ func RunCreate(opts CreateOptions) error {
 	ctx := TemplateContext{
 		AppName:   opts.Name,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		Version:   "0.1.0",
+		Version:   version.Current,
 	}
 
 	templateRoot := opts.Template
@@ -96,10 +97,12 @@ func RunCreate(opts CreateOptions) error {
 			return nil
 		}
 
-		// Handle renamed files like gitignore -> .gitignore
+		// Handle renamed files like gitignore -> .gitignore and go.mod.tmpl -> go.mod
 		destRelPath := relPath
 		if filepath.Base(destRelPath) == "gitignore" {
 			destRelPath = filepath.Join(filepath.Dir(destRelPath), ".gitignore")
+		} else if filepath.Base(destRelPath) == "go.mod.tmpl" {
+			destRelPath = filepath.Join(filepath.Dir(destRelPath), "go.mod")
 		}
 
 		destPath := filepath.Join(absPath, destRelPath)
@@ -149,10 +152,10 @@ func RunCreate(opts CreateOptions) error {
 	// Create initial pogonian.lock
 	lockContent := fmt.Sprintf(`# Pogonian Lockfile
 version: 1
-framework_version: 0.1.0
+framework_version: %s
 created_at: "%s"
 generator: "pogn create"
-`, ctx.CreatedAt)
+`, version.Current, ctx.CreatedAt)
 
 	lockPath := filepath.Join(absPath, "pogonian.lock")
 	if err := os.WriteFile(lockPath, []byte(lockContent), 0644); err != nil {

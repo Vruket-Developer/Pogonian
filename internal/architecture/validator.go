@@ -18,12 +18,29 @@ type Violation struct {
 
 // Validator enforces Pogonian architectural boundaries and clean layer separation.
 type Validator struct {
-	Strict bool
+	Strict      bool
+	Enforcement string // "warn", "strict", "off"
 }
 
-// NewValidator creates an architecture validator.
+// NewValidator creates an architecture validator from a boolean strict flag.
 func NewValidator(strict bool) *Validator {
-	return &Validator{Strict: strict}
+	enforcement := "warn"
+	if strict {
+		enforcement = "strict"
+	}
+	return &Validator{Strict: strict, Enforcement: enforcement}
+}
+
+// NewValidatorWithEnforcement creates an architecture validator with an explicit enforcement mode.
+func NewValidatorWithEnforcement(enforcement string) *Validator {
+	normalized := strings.ToLower(strings.TrimSpace(enforcement))
+	if normalized == "" {
+		normalized = "warn"
+	}
+	return &Validator{
+		Strict:      normalized == "strict",
+		Enforcement: normalized,
+	}
 }
 
 // Validate executes all architectural rule checks against the IR and graph.

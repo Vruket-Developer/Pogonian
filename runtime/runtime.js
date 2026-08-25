@@ -20,13 +20,86 @@
         afterNavigate: []
     };
 
-    window.Pogonian = {
+    const api = {
+        async request(url, options = {}) {
+            const method = (options.method || 'GET').toUpperCase();
+            const headers = {
+                'X-Pogonian-Request': 'true',
+                'Accept': 'application/json, text/plain, */*',
+                ...(options.headers || {})
+            };
+
+            const csrf = getCSRFToken();
+            if (csrf && !headers['X-CSRF-Token']) {
+                headers['X-CSRF-Token'] = csrf;
+            }
+
+            let body = options.body;
+            if (body && typeof body === 'object' && !(body instanceof FormData) && !(body instanceof URLSearchParams)) {
+                headers['Content-Type'] = 'application/json';
+                body = JSON.stringify(body);
+            }
+
+            const res = await fetch(url, {
+                method,
+                headers,
+                body
+            });
+
+            const contentType = res.headers.get('content-type') || '';
+            let data = null;
+            if (contentType.includes('application/json')) {
+                data = await res.json();
+            } else {
+                data = await res.text();
+            }
+
+            if (!res.ok) {
+                const error = new Error(data && data.error ? data.error : `HTTP ${res.status} ${res.statusText}`);
+                error.status = res.status;
+                error.data = data;
+                throw error;
+            }
+
+            return data;
+        },
+
+        get(url, options = {}) {
+            return this.request(url, { ...options, method: 'GET' });
+        },
+
+        post(url, body, options = {}) {
+            return this.request(url, { ...options, method: 'POST', body });
+        },
+
+        put(url, body, options = {}) {
+            return this.request(url, { ...options, method: 'PUT', body });
+        },
+
+        delete(url, options = {}) {
+            return this.request(url, { ...options, method: 'DELETE' });
+        },
+
+        entity(name) {
+            const base = `/api/${name.toLowerCase()}`;
+            return {
+                list: (opts) => api.get(base, opts),
+                get: (id, opts) => api.get(`${base}/${id}`, opts),
+                create: (data, opts) => api.post(base, data, opts),
+                update: (id, data, opts) => api.put(`${base}/${id}`, data, opts),
+                remove: (id, opts) => api.delete(`${base}/${id}`, opts)
+            };
+        }
+    };
+
+    window.pogn = window.Pogonian = {
         version: '0.3.0',
         onBeforeNavigate: (fn) => lifecycle.beforeNavigate.push(fn),
         onBeforeSwap: (fn) => lifecycle.beforeSwap.push(fn),
         onAfterNavigate: (fn) => lifecycle.afterNavigate.push(fn),
         navigate: (url) => navigateTo(url, true),
-        getCSRFToken: () => getCSRFToken()
+        getCSRFToken: () => getCSRFToken(),
+        api: api
     };
 
     function getCSRFToken() {

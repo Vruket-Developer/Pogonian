@@ -32,10 +32,14 @@ func TestPognCreate_BasicProject(t *testing.T) {
 	app.AssertFileExists("app/architecture/page.html")
 
 	// Components
-	app.AssertFileExists("components/Card.html")
+	app.AssertFileExists("app/components/Card.html")
 
 	// Backend server starter
 	app.AssertFileExists("server/routes.go")
+
+	// Documentation & Readme
+	app.AssertFileExists("README.md")
+	app.AssertFileExists("docs/README.md")
 
 	// Architecture & AI metadata
 	app.AssertFileExists(".pogonian/architecture/app.ai")

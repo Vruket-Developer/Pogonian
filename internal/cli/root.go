@@ -3,9 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
+
+	"pogonian/internal/version"
 )
 
-const Version = "0.2.0"
+var Version = version.Current
 
 const banner = "\n" +
 	" \x1b[1;36m___  __  ___  __  _  _ _  __  _  _ \x1b[0m\n" +
@@ -108,6 +110,9 @@ func Run(args []string) error {
 	case "docs":
 		return RunDocs(cmdArgs)
 
+	case "swagger", "openapi":
+		return RunSwagger(cmdArgs)
+
 	case "clean":
 		return RunClean(cmdArgs)
 
@@ -141,6 +146,7 @@ func PrintHelp() {
 	fmt.Println("\x1b[1mDEVELOPMENT & TESTING:\x1b[0m")
 	fmt.Println("  \x1b[1;36mcreate\x1b[0m <name> [dir]    Scaffold a new Pogonian application")
 	fmt.Println("  \x1b[1;36mdev\x1b[0m                    Start live dev server with soft navigation & DevTools")
+	fmt.Println("  \x1b[1;36mswagger\x1b[0m                Interactive Swagger UI and OpenAPI 3.0 specification")
 	fmt.Println("  \x1b[1;36mbuild\x1b[0m [--standalone]   Compile and package optimized production release")
 	fmt.Println("  \x1b[1;36mtest\x1b[0m [--e2e]           Run unified test orchestrator (Architecture, Security, Unit, E2E)")
 	fmt.Println("  \x1b[1;36mcheck\x1b[0m                  Validate architecture rules, boundaries, and routes")

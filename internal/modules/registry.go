@@ -37,186 +37,39 @@ type InstallResult struct {
 	UsageHint    string
 }
 
+// RegistryProvider resolves modules from a source (builtin catalog, local directory, remote git).
+type RegistryProvider interface {
+	Name() string
+	Get(name string) (*Module, error)
+	List() []*Module
+}
+
+// BuiltinProvider serves modules from the embedded catalog.
+type BuiltinProvider struct{}
+
+func (b *BuiltinProvider) Name() string { return "builtin" }
+
+func (b *BuiltinProvider) Get(name string) (*Module, error) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if m, ok := Catalog[key]; ok {
+		return m, nil
+	}
+	return nil, fmt.Errorf("module '%s' not found in builtin catalog", name)
+}
+
+func (b *BuiltinProvider) List() []*Module {
+	var list []*Module
+	for _, m := range Catalog {
+		list = append(list, m)
+	}
+	return list
+}
+
+// GlobalRegistry manages active registry providers.
+var GlobalRegistry RegistryProvider = &BuiltinProvider{}
+
 // Catalog holds all available built-in marketplace components and modules.
 var Catalog = map[string]*Module{
-	"footer": {
-		Name:        "footer",
-		Category:    CategoryUIComponent,
-		Description: "Modern responsive HTML5 footer with brand logo, nav links, social icons, and copyright",
-		UsageHint:   `Add {{ template "components/footer.html" . }} or {{ template "footer" . }} into app/layout.html or any page.`,
-		Files: map[string]string{
-			"app/components/footer.html": `{{ define "footer" }}
-<footer class="pogn-component-footer">
-    <div class="container footer-grid">
-        <div class="footer-brand-col">
-            <div class="brand-logo">
-                <span class="logo-badge">P</span>
-                <strong>Pogonian App</strong>
-            </div>
-            <p class="footer-tagline">High-performance, HTML-first web application powered by Go & Radix routing.</p>
-            <div class="footer-socials">
-                <a href="https://github.com" target="_blank" aria-label="GitHub" class="social-link">GitHub</a>
-                <a href="https://twitter.com" target="_blank" aria-label="Twitter" class="social-link">Twitter</a>
-                <a href="https://discord.com" target="_blank" aria-label="Discord" class="social-link">Discord</a>
-            </div>
-        </div>
-        
-        <div class="footer-links-col">
-            <h4>Product</h4>
-            <ul>
-                <li><a href="/products">Features & Catalog</a></li>
-                <li><a href="/pricing">Pricing Plans</a></li>
-                <li><a href="/architecture">Architecture Flow</a></li>
-                <li><a href="/__pogn/devtools">Live DevTools</a></li>
-            </ul>
-        </div>
-        
-        <div class="footer-links-col">
-            <h4>Resources</h4>
-            <ul>
-                <li><a href="/docs">Documentation</a></li>
-                <li><a href="/about">About Us</a></li>
-                <li><a href="/feedback">Feedback & Support</a></li>
-                <li><a href="/privacy">Privacy Policy</a></li>
-            </ul>
-        </div>
-        
-        <div class="footer-newsletter-col">
-            <h4>Stay Connected</h4>
-            <p>Subscribe for product updates and engineering deep dives.</p>
-            <form action="/newsletter" method="post" class="footer-newsletter-form">
-                <input type="hidden" name="_csrf" value="{{ .CSRFToken }}">
-                <div class="newsletter-input-group">
-                    <input type="email" name="email" placeholder="you@example.com" required class="input-field">
-                    <button type="submit" class="btn btn-primary">Subscribe</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
-    <div class="footer-bottom">
-        <div class="container footer-bottom-content">
-            <p>&copy; 2026 Pogonian Framework. Built with HTML-First architecture & Go backend.</p>
-            <div class="footer-bottom-links">
-                <a href="/terms">Terms</a>
-                <a href="/privacy">Privacy</a>
-                <a href="/security">Security</a>
-            </div>
-        </div>
-    </div>
-</footer>
-{{ end }}`,
-		},
-		CSS: `
-/* Pogonian Marketplace: Footer Component Styles */
-.pogn-component-footer {
-    background: var(--bg-card, #18181b);
-    border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));
-    color: var(--text-secondary, #a1a1aa);
-    padding-top: 3.5rem;
-    margin-top: 4rem;
-}
-.footer-grid {
-    display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1.5fr;
-    gap: 2.5rem;
-    padding-bottom: 3rem;
-}
-@media (max-width: 900px) {
-    .footer-grid {
-        grid-template-columns: 1fr 1fr;
-    }
-}
-@media (max-width: 600px) {
-    .footer-grid {
-        grid-template-columns: 1fr;
-    }
-}
-.footer-brand-col .footer-tagline {
-    margin: 1rem 0 1.5rem;
-    line-height: 1.6;
-    font-size: 0.95rem;
-}
-.footer-socials {
-    display: flex;
-    gap: 1rem;
-}
-.footer-socials .social-link {
-    color: var(--text-primary, #f4f4f5);
-    text-decoration: none;
-    font-weight: 500;
-    font-size: 0.9rem;
-    padding: 0.25rem 0.5rem;
-    background: rgba(255,255,255,0.05);
-    border-radius: 6px;
-    transition: all 0.2s ease;
-}
-.footer-socials .social-link:hover {
-    background: var(--primary, #38bdf8);
-    color: #000;
-}
-.footer-links-col h4, .footer-newsletter-col h4 {
-    color: var(--text-primary, #f4f4f5);
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: 1.25rem;
-}
-.footer-links-col ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-.footer-links-col ul li {
-    margin-bottom: 0.75rem;
-}
-.footer-links-col ul li a {
-    color: var(--text-secondary, #a1a1aa);
-    text-decoration: none;
-    font-size: 0.9rem;
-    transition: color 0.2s ease;
-}
-.footer-links-col ul li a:hover {
-    color: var(--primary, #38bdf8);
-}
-.newsletter-input-group {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-}
-.newsletter-input-group .input-field {
-    flex: 1;
-    padding: 0.6rem 0.8rem;
-    background: var(--bg-main, #09090b);
-    border: 1px solid var(--border-color, rgba(255,255,255,0.12));
-    border-radius: 8px;
-    color: #fff;
-}
-.footer-bottom {
-    border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));
-    padding: 1.5rem 0;
-    font-size: 0.85rem;
-}
-.footer-bottom-content {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
-}
-.footer-bottom-links {
-    display: flex;
-    gap: 1.5rem;
-}
-.footer-bottom-links a {
-    color: var(--text-secondary, #a1a1aa);
-    text-decoration: none;
-}
-.footer-bottom-links a:hover {
-    color: var(--primary, #38bdf8);
-}
-`,
-	},
-
 	"header": {
 		Name:        "header",
 		Category:    CategoryUIComponent,
@@ -415,6 +268,11 @@ func InstallModule(projectDir, moduleName string) (*InstallResult, error) {
 	// 2. Append CSS if provided
 	if mod.CSS != "" {
 		cssPath := filepath.Join(projectDir, "globals.css")
+		if _, err := os.Stat(cssPath); os.IsNotExist(err) {
+			if _, appErr := os.Stat(filepath.Join(projectDir, "app", "globals.css")); appErr == nil {
+				cssPath = filepath.Join(projectDir, "app", "globals.css")
+			}
+		}
 		if _, err := os.Stat(cssPath); err == nil {
 			existing, _ := os.ReadFile(cssPath)
 			if !strings.Contains(string(existing), "Pogonian Marketplace: "+strings.Title(mod.Name)) {

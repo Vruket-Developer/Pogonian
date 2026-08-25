@@ -1,5 +1,5 @@
 name: {{ .AppName }}
-version: 0.1.0
+version: {{ .Version }}
 framework: pogonian
 
 server:
@@ -8,7 +8,7 @@ server:
 
 architecture:
   style: "modular-monolith"
-  strict: false
+  enforcement: "warn"
 
 database:
   driver: "sqlite"

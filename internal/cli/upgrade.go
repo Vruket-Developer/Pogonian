@@ -147,7 +147,7 @@ func RunVersionList(projectDir string) error {
 		if isCurrent {
 			tags = append(tags, "\x1b[1;36m[Current]\x1b[0m")
 		}
-		if isMaxUpgradable {
+		if isMaxUpgradable && !isCurrent {
 			tags = append(tags, "\x1b[1;33m(max upgradable)\x1b[0m")
 		}
 
@@ -178,8 +178,8 @@ func RunVersionList(projectDir string) error {
 	}
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	if currentVersion == maxUpgradable {
-		fmt.Printf("  ✨ \x1b[1;32mYour project is already at the max upgradable version (v%s)!\x1b[0m\n", currentVersion)
+	if currentVersion == maxUpgradable || currentVersion >= maxUpgradable {
+		fmt.Printf("  ✨ \x1b[1;32mYour project is up to date with the latest active version (v%s)!\x1b[0m\n", currentVersion)
 	} else {
 		fmt.Printf("  🚀 \x1b[1;33mTo upgrade your project to v%s (max upgradable):\x1b[0m\n", maxUpgradable)
 		fmt.Printf("     \x1b[1;32mpogn upgrade --target=%s\x1b[0m\n", maxUpgradable)
@@ -192,7 +192,7 @@ func RunVersionList(projectDir string) error {
 
 func findMaxUpgradableVersion() string {
 	for _, rel := range AvailableReleases {
-		if isToolchainCompatible(rel.MinGoVersion) {
+		if (rel.Channel == ChannelLatest || rel.Channel == ChannelStable) && isToolchainCompatible(rel.MinGoVersion) {
 			return rel.Version
 		}
 	}

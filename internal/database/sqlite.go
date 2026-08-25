@@ -241,6 +241,45 @@ func (db *DB) GenericSelectByID(table string, id int64) (map[string]interface{},
 	return nil, nil
 }
 
+// GenericDeleteByID deletes a single record from any table by ID.
+func (db *DB) GenericDeleteByID(table string, id int64) error {
+	if !IsSafeIdentifier(table) {
+		return fmt.Errorf("invalid table identifier: %s", table)
+	}
+
+	queryStmt := "DELETE FROM " + table + " WHERE id = ?"
+	_, err := db.Exec(queryStmt, id)
+	return err
+}
+
+// GenericUpdateByID updates specified columns for a record by ID.
+func (db *DB) GenericUpdateByID(table string, id int64, formValues map[string]string) error {
+	if !IsSafeIdentifier(table) {
+		return fmt.Errorf("invalid table identifier: %s", table)
+	}
+
+	var setClauses []string
+	var vals []interface{}
+
+	for k, v := range formValues {
+		k = strings.TrimSpace(k)
+		if k == "_csrf" || k == "_method" || k == "id" || k == "" || !IsSafeIdentifier(k) {
+			continue
+		}
+		setClauses = append(setClauses, k+" = ?")
+		vals = append(vals, v)
+	}
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	vals = append(vals, id)
+	queryStmt := "UPDATE " + table + " SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
+	_, err := db.Exec(queryStmt, vals...)
+	return err
+}
+
 // ToPascalCase converts snake_case or lowercase string to PascalCase (e.g. item_name -> ItemName, created_at -> CreatedAt).
 func ToPascalCase(s string) string {
 	parts := strings.Split(s, "_")

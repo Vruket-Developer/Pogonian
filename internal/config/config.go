@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+	"pogonian/internal/version"
 )
 
 // Config represents the pogonian.yaml project configuration.
@@ -25,8 +26,9 @@ type ServerConfig struct {
 }
 
 type ArchitectureConfig struct {
-	Style  string `yaml:"style"`
-	Strict bool   `yaml:"strict"`
+	Style       string `yaml:"style"`
+	Enforcement string `yaml:"enforcement,omitempty"` // "warn" | "strict" | "off"
+	Strict      bool   `yaml:"strict,omitempty"`      // backwards compatibility
 }
 
 type DatabaseConfig struct {
@@ -39,7 +41,7 @@ type DatabaseConfig struct {
 func DefaultConfig(name string) *Config {
 	return &Config{
 		Name:        name,
-		Version:     "0.1.0",
+		Version:     version.Current,
 		Framework:   "pogonian",
 		Environment: "development",
 		Server: ServerConfig{
@@ -47,8 +49,9 @@ func DefaultConfig(name string) *Config {
 			Port: 3000,
 		},
 		Architecture: ArchitectureConfig{
-			Style:  "modular-monolith",
-			Strict: false,
+			Style:       "modular-monolith",
+			Enforcement: "warn",
+			Strict:      false,
 		},
 		Database: DatabaseConfig{
 			Driver: "sqlite",

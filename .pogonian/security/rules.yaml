@@ -1,0 +1,42 @@
+# Pogonian Security Policy & Rules Configuration
+# All security policies and custom rules placed in .pogonian/security/ are tested by 'pogn security'
+
+version: "1.0"
+policies:
+  csrf:
+    enabled: true
+    fail_closed: true
+    cookie_same_site: "Lax"
+    cookie_http_only: true
+
+  auth:
+    password_algorithm: "argon2id"
+    min_password_length: 8
+    session_fixation_protection: true
+
+  headers:
+    x_frame_options: "DENY"
+    x_content_type_options: "nosniff"
+    referrer_policy: "strict-origin-when-cross-origin"
+    content_security_policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+
+  static_files:
+    prevent_path_traversal: true
+    block_dotfiles: true
+
+  sql_injection:
+    enforce_parameterized_queries: true
+
+  secret_scanning:
+    block_aws_keys: true
+    block_private_keys: true
+    block_hardcoded_passwords: true
+
+  # Add custom project security rules below:
+  custom_rules:
+    - name: "Block Raw Exec Usage in Handlers"
+      severity: "HIGH"
+      pattern: 'exec\.Command\('
+      file_types: [".go"]
+      description: "Direct shell command execution in application code requires security review"
+      recommendation: "Avoid running unsanitized shell commands in HTTP handlers."

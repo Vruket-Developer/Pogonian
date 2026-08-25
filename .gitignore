@@ -1,5 +1,6 @@
 # Pogonian framework repository gitignore
-bin/
+bin/*
+!bin/pogn-node-shim.js
 dist/
 .test-work/
 *.test

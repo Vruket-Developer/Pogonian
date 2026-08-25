@@ -13,6 +13,7 @@ import (
 	"pogonian/internal/compiler"
 	"pogonian/internal/config"
 	"pogonian/internal/router"
+	"pogonian/internal/version"
 )
 
 // BuildOptions holds flags and arguments for the production build pipeline.
@@ -74,7 +75,7 @@ func RunBuild(args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("📦 \x1b[1;36mPogonian Production Compiler\x1b[0m \x1b[1;30mv0.1.0\x1b[0m\n")
+	fmt.Printf("📦 \x1b[1;36mPogonian Production Compiler\x1b[0m \x1b[1;30mv%s\x1b[0m\n", version.Current)
 	fmt.Printf("   Project:   \x1b[1m%s\x1b[0m\n", absDir)
 	fmt.Printf("   Target:    %s\n\n", opts.OutputDir)
 
@@ -109,7 +110,6 @@ func RunBuild(args []string) error {
 	if err := os.MkdirAll(distDir, 0755); err != nil {
 		return err
 	}
-
 	// Step 4: Synthesize Production Release Entrypoint
 	fmt.Printf("  🔨 \x1b[1m[4/5] Generating standalone production entrypoint...\x1b[0m\n")
 	entrypointCode := fmt.Sprintf(`package main
@@ -124,8 +124,8 @@ import (
 	"syscall"
 	"time"
 
-	"pogonian/internal/config"
-	"pogonian/internal/server"
+	"pogonian/pkg/config"
+	"pogonian/pkg/server"
 )
 
 func main() {
@@ -137,7 +137,7 @@ func main() {
 		cfg = config.DefaultConfig("%s")
 	}
 
-	// Dynamic PORT binding for Cloud / Docker / Serverless (Heroku, Fly.io, Cloud Run)
+	// Dynamic PORT binding for Cloud / Docker / Serverless
 	if portEnv := os.Getenv("PORT"); portEnv != "" {
 		var p int
 		if _, err := fmt.Sscanf(portEnv, "%%d", &p); err == nil && p > 0 {
@@ -145,13 +145,13 @@ func main() {
 		}
 	}
 
-	// Initialize Production Server (DevMode = false: no DevTools, template caching enabled)
+	// Initialize Production Server (DevMode = false: no DevTools overhead, precompiled templates)
 	srv, err := server.New(".", false)
 	if err != nil {
 		log.Fatalf("Fatal Pogonian production startup error: %%v", err)
 	}
 
-	// Setup Graceful Shutdown Listener
+	// Graceful Shutdown Listener
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -180,7 +180,12 @@ func main() {
 		return fmt.Errorf("failed to write build entrypoint: %w", err)
 	}
 
-	// Step 5: Compile Standalone Native Binary with Optimization & Reproducibility Flags
+	// Ensure project has a valid go.mod with pogonian dependency resolved
+	if err := ensureProjectGoMod(absDir); err != nil {
+		return fmt.Errorf("failed to prepare project dependencies: %w", err)
+	}
+
+	// Step 5: Compile Standalone Native Binary with Optimization Flags
 	fmt.Printf("  🚀 \x1b[1m[5/5] Compiling native release binary with Go toolchain...\x1b[0m\n")
 	outBin := filepath.Join(distDir, appName)
 
@@ -205,15 +210,8 @@ func main() {
 	cmd.Env = env
 
 	if out, err := cmd.CombinedOutput(); err != nil {
-		// Fallback: If external project without direct pogonian module path, copy current binary
-		srcBin, execErr := os.Executable()
-		if execErr == nil && srcBin != "" {
-			if data, readErr := os.ReadFile(srcBin); readErr == nil {
-				_ = os.WriteFile(outBin, data, 0755)
-			}
-		} else {
-			return fmt.Errorf("compilation failed: %s", string(out))
-		}
+		// Strict zero-tolerance: never fake build success by copying pogn binary
+		return fmt.Errorf("production build failed: go compilation error:\n%s", string(out))
 	}
 
 	// Compute build hash and size
@@ -237,4 +235,97 @@ func main() {
 	fmt.Printf("   • To Run:       \x1b[1;34m./dist/%s\x1b[0m\n\n", appName)
 
 	return nil
+}
+
+// ensureProjectGoMod ensures that the target project has a valid go.mod with pogonian dependency.
+func ensureProjectGoMod(projectDir string) error {
+	goModPath := filepath.Join(projectDir, "go.mod")
+
+	repoRoot, err := findFrameworkRoot()
+	if err != nil {
+		return nil // standalone remote build
+	}
+
+	// If building inside the framework repo itself, go.mod is already present
+	absProject, _ := filepath.Abs(projectDir)
+	absRoot, _ := filepath.Abs(repoRoot)
+	if absProject == absRoot {
+		return nil
+	}
+
+	if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+		appName := filepath.Base(projectDir)
+		modContent := fmt.Sprintf(`module %s
+
+go 1.22
+
+require pogonian v%s
+
+replace pogonian => %s
+`, appName, version.Current, absRoot)
+
+		return os.WriteFile(goModPath, []byte(modContent), 0644)
+	}
+
+	// Ensure require and replace directives point to local framework if running in local environment
+	data, err := os.ReadFile(goModPath)
+	if err == nil {
+		modStr := string(data)
+		var newLines []string
+		hasRequire := false
+		hasReplace := false
+
+		for _, line := range strings.Split(modStr, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "require pogonian") {
+				hasRequire = true
+			}
+			if strings.HasPrefix(trimmed, "replace pogonian") {
+				hasReplace = true
+				line = fmt.Sprintf("replace pogonian => %s", absRoot)
+			}
+			newLines = append(newLines, line)
+		}
+
+		if !hasRequire {
+			newLines = append(newLines, fmt.Sprintf("\nrequire pogonian v%s", version.Current))
+		}
+		if !hasReplace {
+			newLines = append(newLines, fmt.Sprintf("\nreplace pogonian => %s", absRoot))
+		}
+
+		_ = os.WriteFile(goModPath, []byte(strings.Join(newLines, "\n")), 0644)
+	}
+
+	// Resolve and record all direct & indirect dependencies for the build entrypoint
+	getCmd := exec.Command("go", "get", "./.pogonian/build")
+	getCmd.Dir = projectDir
+	_, _ = getCmd.CombinedOutput()
+
+	return nil
+}
+
+func findFrameworkRoot() (string, error) {
+	// 1. Try checking executable directory or walking up from cwd
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	dir := cwd
+	for {
+		candidate := filepath.Join(dir, "go.mod")
+		if data, err := os.ReadFile(candidate); err == nil {
+			if strings.Contains(string(data), "module pogonian") {
+				return dir, nil
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", fmt.Errorf("pogonian framework root not found")
 }

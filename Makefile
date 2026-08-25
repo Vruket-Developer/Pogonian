@@ -37,5 +37,11 @@ fmt:
 
 # Clean build artifacts and temporary test environments
 clean:
-	rm -rf bin/ .test-work/ /tmp/pogonian-tests/
+	rm -f bin/pogn bin/pogn.exe
+	rm -rf .test-work/ /tmp/pogonian-tests/ dist/
 	@echo "✓ Workspace cleaned"
+
+# Package clean distribution archive excluding .git and build caches
+package: clean
+	@chmod +x scripts/package.sh
+	@./scripts/package.sh
