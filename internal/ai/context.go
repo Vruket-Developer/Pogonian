@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 )
 
 // AIContext contains the minimal, token-efficient architectural context for an AI prompt.

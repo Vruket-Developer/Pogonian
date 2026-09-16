@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"pogonian/internal/database"
+	database "pogonian/pkg/dataruntime"
 )
 
 func TestDatabase_SQLite(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pogonian/internal/config"
+	"pogonian/pkg/config"
 )
 
 // RunSecret executes `pogn secret` / `pogn key:generate` to generate or rotate cryptographic application keys.

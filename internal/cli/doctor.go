@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pogonian/internal/config"
-	"pogonian/internal/database"
-	"pogonian/internal/router"
+	"pogonian/pkg/config"
+	"pogonian/pkg/dataruntime"
+	"pogonian/pkg/router"
 	"pogonian/internal/security"
 )
 
@@ -63,7 +63,7 @@ func RunDoctor(args []string) error {
 			if !filepath.IsAbs(dbPath) && dbPath != ":memory:" {
 				dbPath = filepath.Join(absDir, dbPath)
 			}
-			if db, err := database.Open(dbPath); err == nil {
+			if db, err := dataruntime.Open(dbPath); err == nil {
 				defer db.Close()
 				fmt.Printf("  ✓ \x1b[1;32mDatabase (SQLite):\x1b[0m     WAL mode active at %s\n", cfg.Database.Path)
 			} else {

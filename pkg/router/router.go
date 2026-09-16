@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -13,11 +12,10 @@ import (
 // Route represents a discovered filesystem route.
 type Route struct {
 	Path        string   // e.g. "/", "/about", "/products/:id"
-	Pattern     string   // Regex pattern for matching
+	Pattern     string   // Normalized pattern
 	PagePath    string   // Absolute or relative path to page.html
 	LayoutPaths []string // Chain of layout.html paths from root to page
 	Params      []string // Named route parameters, e.g. ["id"]
-	Regex       *regexp.Regexp
 }
 
 // Router maintains the tree of registered filesystem routes.
@@ -42,7 +40,7 @@ func New(appDir string) (*Router, error) {
 	return r, nil
 }
 
-// Scan traverses the app/ directory and builds the route list.
+// Scan traverses the app/ directory and builds the route list and Radix Trie.
 func (r *Router) Scan() error {
 	if _, err := os.Stat(r.AppDir); os.IsNotExist(err) {
 		return fmt.Errorf("app directory '%s' not found", r.AppDir)
@@ -71,128 +69,110 @@ func (r *Router) Scan() error {
 		}
 
 		var urlPath string
+		var params []string
 		if relDir == "." || relDir == "" {
 			urlPath = "/"
 		} else {
+			// Convert windows backslashes
 			normalized := strings.ReplaceAll(relDir, "\\", "/")
 			parts := strings.Split(normalized, "/")
-			for i, part := range parts {
-				if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
-					parts[i] = ":" + strings.Trim(part, "[]")
+			var urlParts []string
+			for _, p := range parts {
+				if strings.HasPrefix(p, "[") && strings.HasSuffix(p, "]") {
+					paramName := p[1 : len(p)-1]
+					if strings.Contains(paramName, ":") {
+						paramName = strings.SplitN(paramName, ":", 2)[0]
+					}
+					params = append(params, paramName)
+					urlParts = append(urlParts, ":"+paramName)
+				} else {
+					urlParts = append(urlParts, p)
 				}
 			}
-			urlPath = "/" + strings.Join(parts, "/")
+			urlPath = "/" + strings.Join(urlParts, "/")
 		}
 
-		layouts := r.findLayouts(filepath.Dir(path))
-		params := extractParams(urlPath)
-		pattern := buildPattern(urlPath)
-		compiledRegex, err := regexp.Compile(pattern)
-		if err != nil {
-			return fmt.Errorf("failed to compile route regex for %s: %w", urlPath, err)
-		}
+		// Find layout chain from root app/ down to this route's directory
+		layouts := r.findLayoutChain(filepath.Dir(path))
 
 		route := &Route{
 			Path:        urlPath,
-			Pattern:     pattern,
+			Pattern:     urlPath,
 			PagePath:    path,
 			LayoutPaths: layouts,
 			Params:      params,
-			Regex:       compiledRegex,
 		}
 
 		routes = append(routes, route)
-		r.Trie.Insert(urlPath, route)
 		return nil
 	})
 
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to scan routes: %w", err)
 	}
 
+	// Sort routes: static routes first, then deep routes
 	sort.Slice(routes, func(i, j int) bool {
-		cI := strings.Count(routes[i].Path, ":")
-		cJ := strings.Count(routes[j].Path, ":")
-		if cI != cJ {
-			return cI < cJ
+		iHasParam := strings.Contains(routes[i].Path, ":")
+		jHasParam := strings.Contains(routes[j].Path, ":")
+		if iHasParam != jHasParam {
+			return !iHasParam
 		}
 		return len(routes[i].Path) > len(routes[j].Path)
 	})
 
+	// Build authoritative Radix Route Trie
+	trie := NewTrieRouter()
+	for _, route := range routes {
+		trie.Insert(route.Path, route)
+	}
+
 	r.Routes = routes
+	r.Trie = trie
 	return nil
 }
 
-// Match tests a requested URL path against the Radix Trie.
-func (r *Router) Match(path string) (*Route, map[string]string) {
-	if route, params := r.Trie.Match(path); route != nil {
-		return route, params
+// Match matches an incoming request path to a Route and extracts path params using the authoritative Radix Trie.
+func (r *Router) Match(requestPath string) (*Route, map[string]string) {
+	if r.Trie == nil {
+		return nil, nil
 	}
 
-	for _, route := range r.Routes {
-		if route.Regex == nil {
-			continue
-		}
-		matches := route.Regex.FindStringSubmatch(path)
-		if matches != nil {
-			params := make(map[string]string)
-			for i, name := range route.Params {
-				if i+1 < len(matches) {
-					params[name] = matches[i+1]
-				}
-			}
-			return route, params
-		}
+	// Normalize trailing slashes and clean path
+	cleanPath := filepath.Clean(requestPath)
+	if !strings.HasPrefix(cleanPath, "/") {
+		cleanPath = "/" + cleanPath
 	}
 
-	return nil, nil
+	return r.Trie.Match(cleanPath)
 }
 
-func (r *Router) findLayouts(pageDir string) []string {
+// findLayoutChain traverses from appDir down to targetDir collecting layout.html files in order.
+func (r *Router) findLayoutChain(targetDir string) []string {
 	var layouts []string
-	curr := pageDir
+	curr := targetDir
+	appAbs, _ := filepath.Abs(r.AppDir)
 
+	var dirChain []string
 	for {
-		candidate := filepath.Join(curr, "layout.html")
-		if _, err := os.Stat(candidate); err == nil {
-			layouts = append([]string{candidate}, layouts...)
-		}
-
-		if curr == r.AppDir || curr == filepath.Dir(curr) {
+		dirChain = append([]string{curr}, dirChain...)
+		currAbs, _ := filepath.Abs(curr)
+		if currAbs == appAbs || curr == "." || curr == "/" {
 			break
 		}
-		curr = filepath.Dir(curr)
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		curr = parent
+	}
+
+	for _, dir := range dirChain {
+		layoutPath := filepath.Join(dir, "layout.html")
+		if _, err := os.Stat(layoutPath); err == nil {
+			layouts = append(layouts, layoutPath)
+		}
 	}
 
 	return layouts
-}
-
-func extractParams(path string) []string {
-	var params []string
-	parts := strings.Split(path, "/")
-	for _, part := range parts {
-		if strings.HasPrefix(part, ":") {
-			params = append(params, strings.TrimPrefix(part, ":"))
-		}
-	}
-	return params
-}
-
-func buildPattern(path string) string {
-	if path == "/" {
-		return `^/?$`
-	}
-
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	var regexParts []string
-
-	for _, part := range parts {
-		if strings.HasPrefix(part, ":") {
-			regexParts = append(regexParts, `([^/]+)`)
-		} else {
-			regexParts = append(regexParts, regexp.QuoteMeta(part))
-		}
-	}
-
-	return `^/` + strings.Join(regexParts, `/`) + `/?$`
 }

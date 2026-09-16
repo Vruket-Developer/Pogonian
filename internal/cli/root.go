@@ -131,6 +131,12 @@ func Run(args []string) error {
 	case "benchmark":
 		return RunBenchmark(cmdArgs)
 
+	case "ir":
+		return RunIR(cmdArgs)
+
+	case "capabilities", "capability":
+		return RunCapabilities(cmdArgs)
+
 	default:
 		return fmt.Errorf("unknown command '%s'. Run 'pogn --help' for usage", cmd)
 	}
@@ -177,6 +183,8 @@ func PrintHelp() {
 	fmt.Println("  \x1b[1;36mdocs\x1b[0m                   Generate automatic API and route documentation")
 	fmt.Println("  \x1b[1;36minspect\x1b[0m                Interactive architectural layer inspector")
 	fmt.Println("  \x1b[1;36manalyze\x1b[0m                Extract Pogonian IR and dependency graph")
+	fmt.Println("  \x1b[1;36mir\x1b[0m [--yaml]            Export Universal Pogonian Intermediate Representation")
+	fmt.Println("  \x1b[1;36mcapabilities\x1b[0m          Audit cross-platform device & OS capability matrix")
 	fmt.Println()
 	fmt.Println("\x1b[1mAI & MIGRATION:\x1b[0m")
 	fmt.Println("  \x1b[1;36mai\x1b[0m <prompt>             AI architecture planning and token-efficient context")

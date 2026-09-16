@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"pogonian/internal/openapi"
-	"pogonian/internal/server"
+	"pogonian/pkg/server"
 	"pogonian/tests/harness"
 )
 

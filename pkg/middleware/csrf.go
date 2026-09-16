@@ -32,6 +32,7 @@ func CSRF(enabled bool) Middleware {
 				return
 			}
 
+			// Get existing token from cookie or create a new one
 			cookie, err := r.Cookie(CSRFCookieName)
 			var token string
 			if err != nil || cookie.Value == "" {
@@ -45,18 +46,20 @@ func CSRF(enabled bool) Middleware {
 					Name:     CSRFCookieName,
 					Value:    token,
 					Path:     "/",
-					HttpOnly: false,
+					HttpOnly: false, // accessible to client runtime
 					SameSite: http.SameSiteLaxMode,
 				})
 			} else {
 				token = cookie.Value
 			}
 
+			// Safe HTTP methods (GET, HEAD, OPTIONS) allowed
 			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			// State-changing methods (POST, PUT, DELETE, PATCH): validate token strictly
 			receivedToken := r.Header.Get(CSRFHeaderName)
 
 			if receivedToken == "" {
@@ -65,6 +68,7 @@ func CSRF(enabled bool) Middleware {
 				receivedToken = r.FormValue(CSRFFormField)
 			}
 
+			// Constant-time token verification (Fail Closed)
 			if receivedToken == "" || subtle.ConstantTimeCompare([]byte(receivedToken), []byte(token)) != 1 {
 				http.Error(w, "403 Forbidden: Invalid or missing CSRF token", http.StatusForbidden)
 				return

@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pogonian/internal/config"
-	"pogonian/internal/ir"
-	"pogonian/internal/router"
+	"pogonian/pkg/config"
+	"pogonian/pkg/ir"
+	"pogonian/pkg/router"
 )
 
 // Analyzer inspects project source code and generates IR and dependency graphs.
@@ -38,6 +38,7 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 	appIR := &ir.Application{
 		SchemaVersion: ir.SchemaVersion,
 		Name:          a.Config.Name,
+		PackageID:     a.Config.GetPackageID(),
 		Version:       a.Config.Version,
 		Framework:     "pogonian",
 		Architecture:  a.Config.Architecture.Style,
@@ -158,7 +159,7 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 							serviceName := extractTypeName(field.Type)
 							handler.CallsServices = append(handler.CallsServices, serviceName)
 						}
-						if strings.Contains(fieldTypeStr, "sql.DB") || strings.Contains(fieldTypeStr, "database.DB") {
+						if strings.Contains(fieldTypeStr, "sql.DB") || strings.Contains(fieldTypeStr, "dataruntime.DB") || strings.Contains(fieldTypeStr, "database.DB") {
 							handler.DirectDBAccess = true
 						}
 					}
@@ -244,6 +245,14 @@ func (a *Analyzer) Analyze() (*ir.Application, *DependencyGraph, error) {
 						}
 					}
 					appIR.Entities = append(appIR.Entities, entity)
+					cols := make([]string, 0, len(entity.Fields))
+					for _, f := range entity.Fields {
+						cols = append(cols, f.Name)
+					}
+					appIR.Database.Tables = append(appIR.Database.Tables, ir.TableIR{
+						Name:    entity.TableName,
+						Columns: cols,
+					})
 				}
 
 				return true

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"pogonian/internal/config"
+	"pogonian/pkg/config"
 )
 
 func TestConfig_EnvFileAndKeyGeneration(t *testing.T) {

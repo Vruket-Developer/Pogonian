@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"pogonian/internal/middleware"
+	"pogonian/pkg/middleware"
 )
 
 func TestMiddleware_Recovery(t *testing.T) {

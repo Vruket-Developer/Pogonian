@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 )
 
 var (

@@ -18,7 +18,7 @@ type TrieNode struct {
 	CatchAll   *TrieNode
 }
 
-// TrieRouter provides high-performance prefix-tree route matching with typed parameter extraction.
+// TrieRouter provides high-performance O(k) prefix-tree route matching with typed parameter extraction.
 type TrieRouter struct {
 	Root *TrieNode
 }
@@ -44,6 +44,7 @@ func (tr *TrieRouter) Insert(pattern string, route *Route) {
 	curr := tr.Root
 
 	for _, seg := range segments {
+		// Catch-all: "*path" or "[...slug]"
 		if strings.HasPrefix(seg, "*") || (strings.HasPrefix(seg, "[...") && strings.HasSuffix(seg, "]")) {
 			paramName := "path"
 			if strings.HasPrefix(seg, "*") {
@@ -64,9 +65,10 @@ func (tr *TrieRouter) Insert(pattern string, route *Route) {
 				}
 			}
 			curr = curr.CatchAll
-			break
+			break // Catch-all must terminate route segments
 		}
 
+		// Parameterized segment: ":id", "[id]", "[id:int]"
 		isParam := false
 		paramName := ""
 		paramType := "string"
@@ -103,6 +105,7 @@ func (tr *TrieRouter) Insert(pattern string, route *Route) {
 			}
 			curr = curr.ParamChild
 		} else {
+			// Static segment
 			if _, exists := curr.Children[seg]; !exists {
 				curr.Children[seg] = &TrieNode{
 					Segment:  seg,
@@ -137,41 +140,56 @@ func (tr *TrieRouter) Match(path string) (*Route, map[string]string) {
 }
 
 func (tr *TrieRouter) matchRecursive(node *TrieNode, segments []string, index int, params map[string]string) *Route {
+	if node == nil {
+		return nil
+	}
+
+	// Reached end of URL segments
 	if index == len(segments) {
-		return node.Route
+		if node.Route != nil {
+			return node.Route
+		}
+		if node.CatchAll != nil && node.CatchAll.Route != nil {
+			params[node.CatchAll.ParamName] = ""
+			return node.CatchAll.Route
+		}
+		return nil
 	}
 
 	seg := segments[index]
 
+	// 1. Static match has highest priority
 	if child, exists := node.Children[seg]; exists {
 		if r := tr.matchRecursive(child, segments, index+1, params); r != nil {
 			return r
 		}
 	}
 
+	// 2. Parameter match
 	if node.ParamChild != nil {
+		pChild := node.ParamChild
 		valid := true
-		if node.ParamChild.ParamType == "int" {
-			if _, err := strconv.ParseInt(seg, 10, 64); err != nil {
+
+		if pChild.ParamType == "int" {
+			if _, err := strconv.Atoi(seg); err != nil {
 				valid = false
 			}
 		}
 
 		if valid {
-			params[node.ParamChild.ParamName] = seg
-			if r := tr.matchRecursive(node.ParamChild, segments, index+1, params); r != nil {
+			params[pChild.ParamName] = seg
+			if r := tr.matchRecursive(pChild, segments, index+1, params); r != nil {
 				return r
 			}
-			delete(params, node.ParamChild.ParamName)
+			delete(params, pChild.ParamName) // Backtrack
 		}
 	}
 
+	// 3. Catch-all match
 	if node.CatchAll != nil {
-		remaining := strings.Join(segments[index:], "/")
-		params[node.CatchAll.ParamName] = remaining
-		if node.CatchAll.Route != nil {
-			return node.CatchAll.Route
-		}
+		rest := strings.Join(segments[index:], "/")
+		params[node.CatchAll.ParamName] = rest
+		return node.CatchAll.Route
 	}
 
 	return nil

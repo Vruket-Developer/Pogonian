@@ -302,10 +302,15 @@ var compNameTagRegex = regexp.MustCompile(`(?i)<component\s+name=["']([a-zA-Z0-9
 var selfClosingTagRegex = regexp.MustCompile(`(?i)<([a-zA-Z0-9_\-]+)\s*/>`)
 var customElementRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9_]*)\s*(?:/>|></[A-Z][a-zA-Z0-9_]*>)`)
 
+// preprocessComponentTags automatically expands tags like <footer />, <Footer />, <pogn:footer />, and <component name="footer" /> into {{ template "footer" . }}
 func (r *Renderer) preprocessComponentTags(html string, knownComponents map[string]bool) string {
+	// 1. Expand <pogn:footer /> or <component:footer />
 	html = pognTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
+
+	// 2. Expand <component name="footer" />
 	html = compNameTagRegex.ReplaceAllString(html, `{{ template "$1" . }}`)
 
+	// 3. Expand self-closing HTML tags like <footer />, <header />, <sidebar />
 	html = selfClosingTagRegex.ReplaceAllStringFunc(html, func(match string) string {
 		submatches := selfClosingTagRegex.FindStringSubmatch(match)
 		if len(submatches) > 1 {
@@ -317,6 +322,7 @@ func (r *Renderer) preprocessComponentTags(html string, knownComponents map[stri
 		return match
 	})
 
+	// 4. Expand PascalCase <Footer /> or <Header /> or <Footer></Footer>
 	html = customElementRegex.ReplaceAllStringFunc(html, func(match string) string {
 		submatches := customElementRegex.FindStringSubmatch(match)
 		if len(submatches) > 1 {
@@ -332,6 +338,7 @@ func (r *Renderer) preprocessComponentTags(html string, knownComponents map[stri
 	return html
 }
 
+// discoverKnownComponents discovers all component names across app/components, root components/, and module/ folders.
 func (r *Renderer) discoverKnownComponents() map[string]bool {
 	comps := make(map[string]bool)
 
@@ -370,6 +377,7 @@ func cleanComponentTemplate(content string) string {
 	return cleaned
 }
 
+// loadComponents imports and registers component templates from /app/components/, /components/, and subfolders like /module/.
 func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 	t = t.Option("missingkey=zero")
 
@@ -410,6 +418,7 @@ func (r *Renderer) loadComponents(t *template.Template) *template.Template {
 			shortName := strings.TrimSuffix(entry.Name(), ".html")
 			lowerShort := strings.ToLower(shortName)
 
+			// Register aliases with clean body content into named subtemplates
 			_, _ = t.New(lowerShort).Option("missingkey=zero").Parse(body)
 			_, _ = t.New(shortName).Option("missingkey=zero").Parse(body)
 			_, _ = t.New("components/" + relUnix).Option("missingkey=zero").Parse(body)

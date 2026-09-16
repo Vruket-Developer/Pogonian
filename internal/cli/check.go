@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/config"
-	"pogonian/internal/router"
+	"pogonian/internal/security"
+	"pogonian/pkg/config"
+	"pogonian/pkg/router"
 )
 
 // RunCheck executes `pogn check` / `pogn lint`.
@@ -102,6 +103,29 @@ func RunCheck(args []string) error {
 			} else {
 				fmt.Printf("  \x1b[1;32m✓ Architecture Layers:\x1b[0m 0 violations detected (Clean Flow)\n")
 			}
+		}
+	}
+
+	// 6. Security Policy Rules Check
+	report, err := security.AuditProject(absDir)
+	if err == nil && report != nil {
+		highSeverityCount := 0
+		for _, f := range report.Findings {
+			if f.Severity == "HIGH" || f.Severity == "CRITICAL" {
+				highSeverityCount++
+			}
+		}
+		if highSeverityCount > 0 {
+			fmt.Println()
+			fmt.Printf("  \x1b[1;31m❌ Security Policy Violations (%d):\x1b[0m\n", highSeverityCount)
+			for _, f := range report.Findings {
+				if f.Severity == "HIGH" || f.Severity == "CRITICAL" {
+					fmt.Printf("    \x1b[1;31m❌ [%s] %s (%s:%d):\x1b[0m %s\n", f.Severity, f.Type, f.File, f.Line, f.Description)
+				}
+			}
+			passed = false
+		} else {
+			fmt.Printf("  \x1b[1;32m✓ Security Policy:\x1b[0m 0 high-severity vulnerabilities detected\n")
 		}
 	}
 

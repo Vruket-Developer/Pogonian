@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/config"
-	"pogonian/internal/router"
+	"pogonian/pkg/config"
+	"pogonian/pkg/router"
 )
 
 // RunExplain executes `pogn explain [target]`.

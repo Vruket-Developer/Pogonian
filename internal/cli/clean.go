@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"pogonian/internal/config"
-	"pogonian/internal/database"
+	"pogonian/pkg/config"
+	"pogonian/pkg/dataruntime"
 )
 
 // RunClean executes `pogn clean` to remove build artifacts, caches, and test runs dynamically.
@@ -122,7 +122,7 @@ func RunReset(args []string) error {
 		_ = os.Remove(dbPath + "-shm")
 
 		// Recreate fresh SQLite database
-		if db, err := database.Open(dbPath); err == nil {
+		if db, err := dataruntime.Open(dbPath); err == nil {
 			_ = db.Close()
 			fmt.Printf("  \x1b[1;32m✓ Re-initialized database:\x1b[0m \x1b[1;36m%s\x1b[0m\n", cfg.Database.Path)
 		}

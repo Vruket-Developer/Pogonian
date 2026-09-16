@@ -3,7 +3,7 @@ package router_test
 import (
 	"testing"
 
-	"pogonian/internal/router"
+	"pogonian/pkg/router"
 )
 
 func TestRouter_TrieMatching(t *testing.T) {

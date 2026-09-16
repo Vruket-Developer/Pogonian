@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"pogonian/internal/devtools"
-	"pogonian/internal/server"
+	"pogonian/pkg/server"
 	"pogonian/tests/harness"
 )
 

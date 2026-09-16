@@ -3,7 +3,24 @@ bin/*
 !bin/pogn-node-shim.js
 dist/
 .test-work/
+.pogonian/build/
+desktop_build_test/
+scratch/
 *.test
 *.out
 *.db
+*.db-wal
+*.db-shm
 *.log
+
+# Secrets & Local Environments
+.env
+.env.*
+!.env.example
+list/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

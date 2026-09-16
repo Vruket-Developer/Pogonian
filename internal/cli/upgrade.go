@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"pogonian/internal/ai"
-	"pogonian/internal/config"
+	"pogonian/pkg/config"
 	"pogonian/internal/security"
 )
 

@@ -64,64 +64,64 @@ DATABASE_URL=sqlite://data.db
 `, appName, appKey, sessionSecret)
 
 	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
-		return "", fmt.Errorf("failed to write .env: %w", err)
+		return "", fmt.Errorf("failed to write .env file: %w", err)
 	}
 
 	return envPath, nil
 }
 
-// LoadEnv reads cascading .env files (.env, .env.local, .env.<env>, .env.<env>.local) in order of precedence.
+// LoadEnv loads cascading .env files in standard priority:
+// 1. .env.[APP_ENV].local
+// 2. .env.[APP_ENV]
+// 3. .env.local
+// 4. .env
 func LoadEnv(projectDir string) map[string]string {
-	envMap := make(map[string]string)
-
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv == "" {
 		appEnv = "development"
 	}
 
-	// Loading order from lowest to highest precedence
-	candidates := []string{
-		".env",
-		".env.local",
-		fmt.Sprintf(".env.%s", appEnv),
-		fmt.Sprintf(".env.%s.local", appEnv),
+	files := []string{
+		filepath.Join(projectDir, ".env"),
+		filepath.Join(projectDir, ".env.local"),
+		filepath.Join(projectDir, fmt.Sprintf(".env.%s", appEnv)),
+		filepath.Join(projectDir, fmt.Sprintf(".env.%s.local", appEnv)),
 	}
 
-	for _, cand := range candidates {
-		loadSingleEnvFile(filepath.Join(projectDir, cand), envMap)
+	envMap := make(map[string]string)
+	for _, file := range files {
+		parseAndSetEnvFile(file, envMap)
 	}
-
 	return envMap
 }
 
-func loadSingleEnvFile(envPath string, envMap map[string]string) {
-	file, err := os.Open(envPath)
+func parseAndSetEnvFile(path string, envMap map[string]string) {
+	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
-	defer file.Close()
+	defer f.Close()
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		if strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", 2)
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
 
 			// Strip quotes if present
-			if (strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"")) ||
-				(strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'")) {
-				val = val[1 : len(val)-1]
-			}
+			val = strings.Trim(val, `"'`)
 
 			envMap[key] = val
-			if os.Getenv(key) == "" {
-				_ = os.Setenv(key, val)
+
+			// Only set if not already present in environment (env vars take precedence over files)
+			if _, exists := os.LookupEnv(key); !exists {
+				os.Setenv(key, val)
 			}
 		}
 	}

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"pogonian/internal/config"
-	"pogonian/internal/database"
+	"pogonian/pkg/config"
+	"pogonian/pkg/dataruntime"
 )
 
 // RunDB handles `pogn db <subcommand>` or `pogn db:migrate`, `pogn db:rollback`, `pogn db:status`, `pogn db:new`.
@@ -51,7 +51,7 @@ func getDBConn(projectDir string) (*sql.DB, *config.Config, error) {
 		dbPath = filepath.Join(absDir, dbPath)
 	}
 
-	driver := &database.SQLiteDriver{Path: dbPath}
+	driver := &dataruntime.SQLiteDriver{Path: dbPath}
 	conn, err := driver.Open()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to database (%s): %w", dbPath, err)
@@ -79,7 +79,7 @@ func RunDBMigrate(args []string) error {
 	defer conn.Close()
 
 	migrationsDir := filepath.Join(absDir, "migrations")
-	engine := database.NewMigrationEngine(conn, &database.SQLiteDriver{})
+	engine := dataruntime.NewMigrationEngine(conn, &dataruntime.SQLiteDriver{})
 
 	fmt.Println()
 	fmt.Printf("🗄️  \x1b[1;36mRunning Database Migrations:\x1b[0m %s\n\n", migrationsDir)
@@ -128,7 +128,7 @@ func RunDBRollback(args []string) error {
 	defer conn.Close()
 
 	migrationsDir := filepath.Join(absDir, "migrations")
-	engine := database.NewMigrationEngine(conn, &database.SQLiteDriver{})
+	engine := dataruntime.NewMigrationEngine(conn, &dataruntime.SQLiteDriver{})
 
 	fmt.Println()
 	fmt.Printf("↩️  \x1b[1;33mRolling Back Database (%d step(s)):\x1b[0m %s\n\n", steps, migrationsDir)
@@ -171,7 +171,7 @@ func RunDBStatus(args []string) error {
 	defer conn.Close()
 
 	migrationsDir := filepath.Join(absDir, "migrations")
-	engine := database.NewMigrationEngine(conn, &database.SQLiteDriver{})
+	engine := dataruntime.NewMigrationEngine(conn, &dataruntime.SQLiteDriver{})
 
 	statuses, err := engine.Status(migrationsDir)
 	if err != nil {
@@ -217,7 +217,7 @@ func RunDBNew(args []string) error {
 	}
 
 	migrationsDir := filepath.Join(absDir, "migrations")
-	upPath, downPath, err := database.GenerateMigration(migrationsDir, name)
+	upPath, downPath, err := dataruntime.GenerateMigration(migrationsDir, name)
 	if err != nil {
 		return fmt.Errorf("failed to create migration files: %w", err)
 	}

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/config"
-	"pogonian/internal/router"
+	"pogonian/pkg/config"
+	"pogonian/pkg/router"
 	"gopkg.in/yaml.v3"
 )
 

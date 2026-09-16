@@ -1,10 +1,8 @@
-package database
+package dataruntime
 
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -12,50 +10,39 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// DB wraps an active SQLite database connection with helper utilities.
+// DB wraps an active database connection with helper utilities and generic query methods.
 type DB struct {
 	*sql.DB
-	Path string
+	path string
 }
 
-// Open initializes and configures a SQLite connection with production pragmas.
-func Open(dbPath string) (*DB, error) {
-	if dbPath != ":memory:" {
-		dir := filepath.Dir(dbPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create database directory: %w", err)
-		}
-	}
-
-	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", dbPath)
-	conn, err := sql.Open("sqlite", dsn)
+// Open initializes and returns a DB instance configured with SQLite WAL pragmas.
+func Open(path string) (*DB, error) {
+	driver := &SQLiteDriver{Path: path}
+	db, err := driver.Open()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-
-	// Set connection pool limits
-	conn.SetMaxOpenConns(25)
-	conn.SetMaxIdleConns(5)
-
-	if err := conn.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to connect to sqlite database: %w", err)
-	}
-
-	return &DB{
-		DB:   conn,
-		Path: dbPath,
-	}, nil
+	return &DB{DB: db, path: path}, nil
 }
 
-// Migrate executes an array of SQL migration scripts in order.
-func (db *DB) Migrate(queries ...string) error {
-	tx, err := db.Begin()
+// Path returns the configured database path.
+func (d *DB) Path() string {
+	return d.path
+}
+
+// Migrate executes an array of SQL migration scripts in a transaction.
+func (d *DB) Migrate(queries ...string) error {
+	tx, err := d.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
 	for _, q := range queries {
+		if strings.TrimSpace(q) == "" {
+			continue
+		}
 		if _, err := tx.Exec(q); err != nil {
 			return fmt.Errorf("migration failed for statement [%s]: %w", q, err)
 		}
@@ -64,7 +51,7 @@ func (db *DB) Migrate(queries ...string) error {
 	return tx.Commit()
 }
 
-// IsSafeIdentifier checks if a table name is purely alphanumeric.
+// IsSafeIdentifier checks if a table or column name is purely alphanumeric and safe.
 func IsSafeIdentifier(name string) bool {
 	if len(name) == 0 || len(name) > 64 {
 		return false
@@ -77,16 +64,26 @@ func IsSafeIdentifier(name string) bool {
 	return true
 }
 
+// TableExists checks if a table exists in the database schema.
+func (d *DB) TableExists(table string) bool {
+	if !IsSafeIdentifier(table) {
+		return false
+	}
+	var exists int
+	err := d.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", table).Scan(&exists)
+	return err == nil && exists == 1
+}
+
 // GenericInsert safely inserts title and content into a dynamic entity table.
-func (db *DB) GenericInsert(table, title, content string) error {
-	return db.GenericInsertForm(table, map[string]string{
+func (d *DB) GenericInsert(table, title, content string) error {
+	return d.GenericInsertForm(table, map[string]string{
 		"title":   title,
 		"content": content,
 	})
 }
 
-// GenericInsertForm dynamically creates table columns and inserts any form key-value pairs.
-func (db *DB) GenericInsertForm(table string, formValues map[string]string) error {
+// GenericInsertForm dynamically creates table columns and inserts form key-value pairs.
+func (d *DB) GenericInsertForm(table string, formValues map[string]string) error {
 	if !IsSafeIdentifier(table) {
 		return fmt.Errorf("invalid table identifier: %s", table)
 	}
@@ -115,7 +112,7 @@ func (db *DB) GenericInsertForm(table string, formValues map[string]string) erro
 	// Ensure table exists
 	createStmt := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT, %s);",
 		table, strings.Join(colDefs, ", "))
-	if _, err := db.Exec(createStmt); err != nil {
+	if _, err := d.Exec(createStmt); err != nil {
 		return err
 	}
 
@@ -123,23 +120,23 @@ func (db *DB) GenericInsertForm(table string, formValues map[string]string) erro
 	for _, col := range cols {
 		if col != "id" && col != "created_at" && IsSafeIdentifier(col) {
 			alterStmt := "ALTER TABLE " + table + " ADD COLUMN " + col + " TEXT"
-			_, _ = db.Exec(alterStmt)
+			_, _ = d.Exec(alterStmt)
 		}
 	}
 
 	queryStmt := "INSERT INTO " + table + " (" + strings.Join(cols, ", ") + ") VALUES (" + strings.Join(placeholders, ", ") + ")"
-	_, err := db.Exec(queryStmt, vals...)
+	_, err := d.Exec(queryStmt, vals...)
 	return err
 }
 
 // GenericSelect safely reads all columns from any table into map entries.
-func (db *DB) GenericSelect(table string) ([]map[string]interface{}, error) {
+func (d *DB) GenericSelect(table string) ([]map[string]interface{}, error) {
 	if !IsSafeIdentifier(table) {
 		return nil, fmt.Errorf("invalid table identifier: %s", table)
 	}
 
 	selectStmt := "SELECT * FROM " + table + " ORDER BY id DESC"
-	rows, err := db.Query(selectStmt)
+	rows, err := d.Query(selectStmt)
 	if err != nil {
 		return nil, err
 	}
@@ -189,13 +186,13 @@ func (db *DB) GenericSelect(table string) ([]map[string]interface{}, error) {
 }
 
 // GenericSelectByID reads a single record from any table by ID.
-func (db *DB) GenericSelectByID(table string, id int64) (map[string]interface{}, error) {
+func (d *DB) GenericSelectByID(table string, id int64) (map[string]interface{}, error) {
 	if !IsSafeIdentifier(table) {
 		return nil, fmt.Errorf("invalid table identifier: %s", table)
 	}
 
 	queryStmt := "SELECT * FROM " + table + " WHERE id = ?"
-	rows, err := db.Query(queryStmt, id)
+	rows, err := d.Query(queryStmt, id)
 	if err != nil {
 		return nil, err
 	}
@@ -242,18 +239,18 @@ func (db *DB) GenericSelectByID(table string, id int64) (map[string]interface{},
 }
 
 // GenericDeleteByID deletes a single record from any table by ID.
-func (db *DB) GenericDeleteByID(table string, id int64) error {
+func (d *DB) GenericDeleteByID(table string, id int64) error {
 	if !IsSafeIdentifier(table) {
 		return fmt.Errorf("invalid table identifier: %s", table)
 	}
 
 	queryStmt := "DELETE FROM " + table + " WHERE id = ?"
-	_, err := db.Exec(queryStmt, id)
+	_, err := d.Exec(queryStmt, id)
 	return err
 }
 
 // GenericUpdateByID updates specified columns for a record by ID.
-func (db *DB) GenericUpdateByID(table string, id int64, formValues map[string]string) error {
+func (d *DB) GenericUpdateByID(table string, id int64, formValues map[string]string) error {
 	if !IsSafeIdentifier(table) {
 		return fmt.Errorf("invalid table identifier: %s", table)
 	}
@@ -276,7 +273,7 @@ func (db *DB) GenericUpdateByID(table string, id int64, formValues map[string]st
 
 	vals = append(vals, id)
 	queryStmt := "UPDATE " + table + " SET " + strings.Join(setClauses, ", ") + " WHERE id = ?"
-	_, err := db.Exec(queryStmt, vals...)
+	_, err := d.Exec(queryStmt, vals...)
 	return err
 }
 

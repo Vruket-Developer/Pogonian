@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"pogonian/internal/config"
+	"pogonian/pkg/config"
 )
 
 // SwaggerUIHTML returns a sleek, dark-mode Swagger UI client with responsive controls and interactive testing.

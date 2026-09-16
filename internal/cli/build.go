@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"pogonian/internal/compiler"
-	"pogonian/internal/config"
-	"pogonian/internal/router"
+	"pogonian/pkg/compiler"
+	"pogonian/pkg/config"
+	"pogonian/pkg/ir"
+	"pogonian/pkg/router"
 	"pogonian/internal/version"
 )
 
@@ -24,6 +25,7 @@ type BuildOptions struct {
 	OutputDir  string
 	TargetOS   string
 	TargetArch string
+	Platform   string
 }
 
 // RunBuild executes `pogn build` / `pogn build --standalone`.
@@ -48,10 +50,13 @@ func RunBuild(args []string) error {
 				i++
 			}
 		case strings.HasPrefix(arg, "--target="):
-			parts := strings.Split(strings.TrimPrefix(arg, "--target="), "/")
+			val := strings.TrimPrefix(arg, "--target=")
+			parts := strings.Split(val, "/")
 			if len(parts) == 2 {
 				opts.TargetOS = parts[0]
 				opts.TargetArch = parts[1]
+			} else {
+				opts.Platform = val
 			}
 		case !strings.HasPrefix(arg, "-"):
 			opts.ProjectDir = arg
@@ -83,6 +88,69 @@ func RunBuild(args []string) error {
 	fmt.Printf("  🔍 \x1b[1m[1/5] Verifying architecture & route integrity...\x1b[0m\n")
 	if err := RunCheck([]string{absDir}); err != nil {
 		return fmt.Errorf("build aborted: architecture checks failed: %w", err)
+	}
+
+	// Multi-Target Native Platform Lowering
+	if opts.Platform != "" && opts.Platform != "web" {
+		fmt.Printf("  🚀 \x1b[1mLowering to Native Platform Target: %s\x1b[0m\n", opts.Platform)
+		pipeline, err := compiler.NewPipeline(absDir)
+		if err != nil {
+			return err
+		}
+
+		var targets []ir.TargetPlatform
+		if opts.Platform == "all" {
+			targets = ir.AllTargetPlatforms()
+		} else if opts.Platform == "tv" {
+			targets = []ir.TargetPlatform{ir.TargetAndroidTV}
+		} else {
+			targets = []ir.TargetPlatform{ir.TargetPlatform(opts.Platform)}
+		}
+
+		res, err := pipeline.Compile(targets)
+		if err != nil {
+			return fmt.Errorf("native compilation failed: %w", err)
+		}
+
+		distDir := filepath.Join(absDir, opts.OutputDir)
+		for tgt, art := range res.Artifacts {
+			targetDist := filepath.Join(distDir, string(tgt))
+			for relPath, content := range art.Files {
+				fullPath := filepath.Join(targetDist, relPath)
+				if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+					return fmt.Errorf("failed to create directory for %s: %w", fullPath, err)
+				}
+				if err := os.WriteFile(fullPath, content, 0644); err != nil {
+					return fmt.Errorf("failed to write lowered file %s: %w", fullPath, err)
+				}
+			}
+			fmt.Printf("     \x1b[1;32m✓\x1b[0m Lowered native [%s] artifact to %s\n", tgt, targetDist)
+
+			// If target is a desktop platform, automatically compile genuine native binary!
+			if tgt == ir.TargetLinux || tgt == ir.TargetWindows || tgt == ir.TargetMacOS {
+				desktopDir := filepath.Join(targetDist, "desktop", string(tgt))
+				binName := appName
+				goos := string(tgt)
+				if tgt == ir.TargetMacOS {
+					goos = "darwin"
+				} else if tgt == ir.TargetWindows {
+					binName += ".exe"
+				}
+				binPath := filepath.Join(targetDist, binName)
+				cmd := exec.Command("go", "build", "-o", binPath, ".")
+				cmd.Dir = desktopDir
+				cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH=amd64", "CGO_ENABLED=0")
+				if out, err := cmd.CombinedOutput(); err != nil {
+					fmt.Printf("     ⚠️  Native [%s] binary build note: %v (%s)\n", tgt, err, strings.TrimSpace(string(out)))
+				} else {
+					fmt.Printf("     \x1b[1;32m⚡ Compiled native binary:\x1b[0m %s\n", binPath)
+				}
+			}
+		}
+
+		fmt.Printf("\n✨ \x1b[1;32mSuccessfully compiled %d native platform target(s) in %s\x1b[0m\n\n",
+			len(targets), time.Since(start).Round(time.Millisecond))
+		return nil
 	}
 
 	// Step 2: Route Scanning & Template Precompilation

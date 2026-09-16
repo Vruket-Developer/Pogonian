@@ -213,7 +213,11 @@ func (f *FileSessionStore) Get(sessionID string) (*Session, error) {
 func (f *FileSessionStore) Delete(sessionID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return os.Remove(f.sessionPath(sessionID))
+	err := os.Remove(f.sessionPath(sessionID))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (f *FileSessionStore) Cleanup() error {
@@ -243,6 +247,7 @@ func (f *FileSessionStore) Cleanup() error {
 
 // SessionManager manages user sessions via a pluggable store.
 type SessionManager struct {
+	mu       sync.RWMutex
 	store    SessionStore
 	duration time.Duration
 }
@@ -257,9 +262,17 @@ func NewSessionManager(store SessionStore, duration time.Duration) *SessionManag
 	}
 }
 
-// SetStore dynamically upgrades or swaps the session store.
+// SetStore dynamically upgrades or swaps the session store in a thread-safe manner.
 func (sm *SessionManager) SetStore(store SessionStore) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	sm.store = store
+}
+
+func (sm *SessionManager) getStore() SessionStore {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.store
 }
 
 // Create creates a new session and sets the HTTP session cookie.
@@ -276,7 +289,7 @@ func (sm *SessionManager) Create(w http.ResponseWriter, user *User) (*Session, e
 		ExpiresAt: time.Now().Add(sm.duration),
 	}
 
-	if err := sm.store.Save(sess); err != nil {
+	if err := sm.getStore().Save(sess); err != nil {
 		return nil, fmt.Errorf("failed to persist session: %w", err)
 	}
 
@@ -308,7 +321,7 @@ func (sm *SessionManager) Get(r *http.Request) *Session {
 		return nil
 	}
 
-	sess, err := sm.store.Get(cookie.Value)
+	sess, err := sm.getStore().Get(cookie.Value)
 	if err != nil {
 		return nil
 	}
@@ -319,7 +332,7 @@ func (sm *SessionManager) Get(r *http.Request) *Session {
 func (sm *SessionManager) Destroy(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(SessionCookieName)
 	if err == nil && cookie.Value != "" {
-		_ = sm.store.Delete(cookie.Value)
+		_ = sm.getStore().Delete(cookie.Value)
 	}
 
 	http.SetCookie(w, &http.Cookie{

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 )
 
 func TestIR_Serialization(t *testing.T) {

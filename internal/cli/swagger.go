@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pogonian/internal/config"
+	"pogonian/pkg/config"
 	"pogonian/internal/openapi"
 )
 

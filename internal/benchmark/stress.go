@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"pogonian/internal/router"
+	"pogonian/pkg/router"
 )
 
 // StressResult holds the metrics from synthetic scale & stress testing.

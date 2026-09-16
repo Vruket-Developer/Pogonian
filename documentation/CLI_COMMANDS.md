@@ -131,10 +131,28 @@ pogn tree --depth=3
 ---
 
 ### `pogn build`
-Synthesizes a standalone application server entrypoint, precompiles all HTML templates, client runtime (`runtime.js`), CSS, and assets, and compiles a single optimized production release.
+Compiles your application using Pogonian's multi-stage compiler. Supports targeting Web (HTML5/HTMX/runtime.js) or genuinely native applications for Android (Jetpack Compose), iOS (SwiftUI), Linux Desktop (GTK4), Windows (WinUI), macOS (AppKit), and Android TV (10-Foot spatial UI).
 
 ```bash
-pogn build [project-dir] [--standalone]
+# Standard optimized web standalone build
+pogn build
+
+# Build specifically for native Android (Jetpack Compose)
+pogn build --target=android
+
+# Build specifically for native iOS (SwiftUI)
+pogn build --target=ios
+
+# Build native desktop binaries
+pogn build --target=linux
+pogn build --target=windows
+pogn build --target=macos
+
+# Build for Android TV / Google TV (10-foot D-pad UI)
+pogn build --target=tv
+
+# Compile all native targets simultaneously into ./dist/
+pogn build --target=all
 ```
 
 ---
@@ -292,6 +310,31 @@ Generates an automatic API and route catalog table showing endpoints, HTTP metho
 
 ```bash
 pogn docs
+```
+
+---
+
+### `pogn ir`
+Emits or inspects the Universal Pogonian Intermediate Representation (IR v2.0) containing the normalized UI element tree, portable application state, event/action models, and capability requirements.
+
+```bash
+# Export as JSON
+pogn ir
+
+# Export as YAML
+pogn ir --yaml
+
+# Compile IR specifically targeting a platform
+pogn ir --target=android
+```
+
+---
+
+### `pogn capabilities`
+Audits the complete cross-platform hardware & OS capability matrix across all target environments (Web, Android, iOS, Linux, Windows, macOS, Android TV), reporting supported, permission-conditional, and unsupported capabilities with actionable recommendations.
+
+```bash
+pogn capabilities
 ```
 
 ---

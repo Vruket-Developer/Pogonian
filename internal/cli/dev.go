@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"pogonian/internal/server"
+	"pogonian/pkg/server"
 )
 
 // DevOptions configures the dev server CLI execution.

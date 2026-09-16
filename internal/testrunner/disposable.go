@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/config"
-	"pogonian/internal/database"
-	"pogonian/internal/router"
-	"pogonian/internal/server"
+	"pogonian/pkg/config"
+	"pogonian/pkg/dataruntime"
+	"pogonian/pkg/router"
+	"pogonian/pkg/server"
 )
 
 // DisposableTestResult holds results of the end-to-end disposable project run.
@@ -78,7 +78,7 @@ func RunDisposableProjectTest() (*DisposableTestResult, error) {
 
 	// Step 2: Test Database Migration Engine
 	migDir := filepath.Join(projectDir, "migrations")
-	upFile, _, err := database.GenerateMigration(migDir, "create_products")
+	upFile, _, err := dataruntime.GenerateMigration(migDir, "create_products")
 	if err != nil {
 		res.Errors = append(res.Errors, fmt.Errorf("step 2 migration generation failed: %w", err))
 		return res, nil
@@ -87,7 +87,7 @@ func RunDisposableProjectTest() (*DisposableTestResult, error) {
 	_ = os.WriteFile(upFile, []byte(upSQL), 0644)
 
 	dbPath := filepath.Join(projectDir, "data.db")
-	dbDriver := &database.SQLiteDriver{Path: dbPath}
+	dbDriver := &dataruntime.SQLiteDriver{Path: dbPath}
 	dbConn, err := dbDriver.Open()
 	if err != nil {
 		res.Errors = append(res.Errors, fmt.Errorf("step 2 db open failed: %w", err))
@@ -95,7 +95,7 @@ func RunDisposableProjectTest() (*DisposableTestResult, error) {
 	}
 	defer dbConn.Close()
 
-	migEngine := database.NewMigrationEngine(dbConn, dbDriver)
+	migEngine := dataruntime.NewMigrationEngine(dbConn, dbDriver)
 	applied, err := migEngine.MigrateUp(migDir)
 	if err != nil || len(applied) == 0 {
 		res.Errors = append(res.Errors, fmt.Errorf("step 2 migration execute failed: %w", err))

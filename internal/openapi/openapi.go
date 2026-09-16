@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/config"
-	"pogonian/internal/router"
+	"pogonian/pkg/config"
+	"pogonian/pkg/router"
 )
 
 // OpenAPI 3.0.0 Spec Structures

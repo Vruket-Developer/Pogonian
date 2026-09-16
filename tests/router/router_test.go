@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"pogonian/internal/router"
+	"pogonian/pkg/router"
 )
 
 func TestRouter_FilesystemDiscovery(t *testing.T) {

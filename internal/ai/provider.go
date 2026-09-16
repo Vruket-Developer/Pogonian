@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 )
 
 // ProviderType represents supported AI backend engines.

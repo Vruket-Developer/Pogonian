@@ -1,9 +1,10 @@
-package database
+package dataruntime
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -33,7 +34,7 @@ type PoolConfig struct {
 	ConnMaxIdleTime time.Duration
 }
 
-// DefaultPoolConfig returns sensible defaults for web applications.
+// DefaultPoolConfig returns sensible defaults for high-performance applications.
 func DefaultPoolConfig() PoolConfig {
 	return PoolConfig{
 		MaxOpenConns:    25,
@@ -59,7 +60,7 @@ func ConfigurePool(db *sql.DB, cfg PoolConfig) {
 	}
 }
 
-// SQLiteDriver implements DBDriver for SQLite.
+// SQLiteDriver implements DBDriver for SQLite WAL mode.
 type SQLiteDriver struct {
 	Path string
 }
@@ -69,26 +70,37 @@ func (s *SQLiteDriver) Type() DriverType {
 }
 
 func (s *SQLiteDriver) DSN() string {
-	return fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", s.Path)
+	if s.Path == "" {
+		s.Path = "data.db"
+	}
+	return fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)", s.Path)
 }
 
 func (s *SQLiteDriver) Open() (*sql.DB, error) {
-	conn, err := sql.Open("sqlite", s.DSN())
+	if s.Path != ":memory:" && s.Path != "" {
+		dir := filepath.Dir(s.Path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
+	}
+	db, err := sql.Open("sqlite", s.DSN())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to SQLite: %w", err)
 	}
-	ConfigurePool(conn, DefaultPoolConfig())
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err := conn.PingContext(ctx); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	return conn, nil
+	ConfigurePool(db, DefaultPoolConfig())
+	return db, db.Ping()
 }
 
 func (s *SQLiteDriver) CreateTableSQL(table string, columns map[string]string) string {
-	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT);", table)
+	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT", sanitizeIdentifier(table))
+	for col, colType := range columns {
+		if col == "id" {
+			continue
+		}
+		query += fmt.Sprintf(", %s %s", sanitizeIdentifier(col), colType)
+	}
+	query += ");"
+	return query
 }
 
 func (s *SQLiteDriver) MigrationTableSQL() string {
@@ -96,7 +108,7 @@ func (s *SQLiteDriver) MigrationTableSQL() string {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		version INTEGER UNIQUE NOT NULL,
 		name TEXT NOT NULL,
-		applied_at DATETIME NOT NULL,
+		applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		checksum TEXT NOT NULL
 	);`
 }

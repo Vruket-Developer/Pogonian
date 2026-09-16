@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"pogonian/internal/server"
+	"pogonian/pkg/server"
 	"pogonian/tests/harness"
 )
 

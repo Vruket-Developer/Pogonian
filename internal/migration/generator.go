@@ -10,7 +10,7 @@ import (
 	"text/template"
 	"time"
 
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 	"pogonian/templates"
 )
 

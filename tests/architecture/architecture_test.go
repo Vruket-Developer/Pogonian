@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"pogonian/internal/architecture"
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 	"pogonian/tests/harness"
 )
 

@@ -19,6 +19,12 @@ type Config struct {
 	Server       ServerConfig       `yaml:"server"`
 	Architecture ArchitectureConfig `yaml:"architecture"`
 	Database     DatabaseConfig     `yaml:"database"`
+	Native       NativeConfig       `yaml:"native,omitempty"`
+}
+
+type NativeConfig struct {
+	PackageID string `yaml:"package_id,omitempty"`
+	Org       string `yaml:"org,omitempty"`
 }
 
 type ServerConfig struct {
@@ -44,6 +50,9 @@ func DefaultConfig(name string) *Config {
 		Name:        name,
 		Version:     version.Current,
 		Framework:   "pogonian",
+		Native: NativeConfig{
+			Org: "com.pogonian",
+		},
 		Environment: "development",
 		Server: ServerConfig{
 			Host: "127.0.0.1",
@@ -126,42 +135,28 @@ func Save(projectDir string, cfg *Config) error {
 	return os.WriteFile(configPath, data, 0644)
 }
 
-// LoadEnv loads environment variables from .env files in cascading order.
-func LoadEnv(projectDir string) {
-	appEnv := os.Getenv("APP_ENV")
-	if appEnv == "" {
-		appEnv = "development"
+// GetPackageID derives a valid reverse-DNS package identifier for native application targets.
+func (c *Config) GetPackageID() string {
+	if c.Native.PackageID != "" {
+		return c.Native.PackageID
 	}
-
-	envFiles := []string{
-		filepath.Join(projectDir, ".env"),
-		filepath.Join(projectDir, fmt.Sprintf(".env.%s", appEnv)),
-		filepath.Join(projectDir, ".env.local"),
-		filepath.Join(projectDir, fmt.Sprintf(".env.%s.local", appEnv)),
+	org := c.Native.Org
+	if org == "" {
+		org = "com.pogonian"
 	}
-
-	for _, file := range envFiles {
-		if data, err := os.ReadFile(file); err == nil {
-			parseEnvLines(string(data))
+	cleanName := strings.ToLower(c.Name)
+	var sb strings.Builder
+	for _, ch := range cleanName {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			sb.WriteRune(ch)
+		} else if ch == '-' || ch == '_' {
+			sb.WriteRune('_')
 		}
 	}
+	pkgName := sb.String()
+	if pkgName == "" {
+		pkgName = "app"
+	}
+	return fmt.Sprintf("%s.%s", org, pkgName)
 }
 
-func parseEnvLines(content string) {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			k := strings.TrimSpace(parts[0])
-			v := strings.TrimSpace(parts[1])
-			v = strings.Trim(v, `"'`)
-			if os.Getenv(k) == "" {
-				_ = os.Setenv(k, v)
-			}
-		}
-	}
-}

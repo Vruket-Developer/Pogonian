@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"pogonian/internal/ai"
-	"pogonian/internal/database"
+	"pogonian/pkg/dataruntime"
 )
 
 // ModuleCategory specifies if a module is UI-only or full-stack.
@@ -286,7 +286,7 @@ func InstallModule(projectDir, moduleName string) (*InstallResult, error) {
 	if mod.Migration != "" {
 		migDir := filepath.Join(projectDir, "migrations")
 		_ = os.MkdirAll(migDir, 0755)
-		upFile, downFile, err := database.GenerateMigration(migDir, "create_"+mod.Name)
+		upFile, downFile, err := dataruntime.GenerateMigration(migDir, "create_"+mod.Name)
 		if err == nil {
 			_ = os.WriteFile(upFile, []byte(mod.Migration), 0644)
 			_ = os.WriteFile(downFile, []byte("DROP TABLE IF EXISTS "+mod.Name+";"), 0644)

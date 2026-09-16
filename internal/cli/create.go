@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"pogonian/internal/config"
+	"pogonian/pkg/config"
 	"pogonian/internal/security"
 	"pogonian/internal/version"
 	"pogonian/templates"

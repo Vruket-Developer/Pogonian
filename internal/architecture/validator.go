@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"pogonian/internal/ir"
+	"pogonian/pkg/ir"
 )
 
 // Violation describes an architectural drift or rule break.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,12 +11,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
+	"pogonian/internal/devtools"
+	"pogonian/internal/openapi"
 	"pogonian/internal/version"
 	"pogonian/pkg/compiler"
 	"pogonian/pkg/config"
-	"pogonian/pkg/database"
+	"pogonian/pkg/dataruntime"
 	"pogonian/pkg/middleware"
 	"pogonian/pkg/router"
 	"pogonian/runtime"
@@ -33,13 +39,16 @@ type Server struct {
 	Config             *config.Config
 	Router             *router.Router
 	Renderer           *compiler.Renderer
-	DB                 *database.DB
+	DB                 *dataruntime.DB
 	DataLoaders        map[string]DataLoaderFunc
 	Actions            map[string]ActionHandlerFunc
+	CSRFEnabled        bool
 	DevMode            bool
 	KillPortOnConflict bool
 	StrictPort         bool
 	httpServer         *http.Server
+	liveClients        map[chan string]bool
+	liveMu             sync.Mutex
 }
 
 // responseRecorder captures the HTTP status code for logging.
@@ -75,16 +84,17 @@ func New(projectDir string, devMode bool) (*Server, error) {
 		}
 	}
 
-	var db *database.DB
+	var db *dataruntime.DB
 	if cfg.Database.Driver == "sqlite" && cfg.Database.Path != "" {
 		dbPath := cfg.Database.Path
 		if !filepath.IsAbs(dbPath) && dbPath != ":memory:" {
 			dbPath = filepath.Join(projectDir, dbPath)
 		}
-		dbConn, err := database.Open(dbPath)
-		if err == nil {
-			db = dbConn
+		dbConn, err := dataruntime.Open(dbPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database at %s: %w", dbPath, err)
 		}
+		db = dbConn
 	}
 
 	s := &Server{
@@ -95,8 +105,12 @@ func New(projectDir string, devMode bool) (*Server, error) {
 		DB:          db,
 		DataLoaders: make(map[string]DataLoaderFunc),
 		Actions:     make(map[string]ActionHandlerFunc),
+		CSRFEnabled: loadServerSecurityPolicy(projectDir),
 		DevMode:     devMode,
+		liveClients: make(map[chan string]bool),
 	}
+
+	s.setupBuiltinModules()
 
 	return s, nil
 }
@@ -115,12 +129,33 @@ func (s *Server) RegisterAction(path string, action ActionHandlerFunc) {
 func (s *Server) Handler() http.Handler {
 	baseHandler := http.HandlerFunc(s.handleRequest)
 
-	return middleware.Chain(
-		baseHandler,
-		middleware.Recovery(s.DevMode),
-		middleware.RateLimit(500, time.Minute),
-		middleware.CSRF(true), // Enabled fail-closed CSRF protection
-	)
+	var mws []middleware.Middleware
+	mws = append(mws, middleware.Recovery(s.DevMode))
+	mws = append(mws, middleware.RateLimit(500, time.Minute))
+	if s.CSRFEnabled {
+		mws = append(mws, middleware.CSRF(true))
+	}
+
+	return middleware.Chain(baseHandler, mws...)
+}
+
+func loadServerSecurityPolicy(projectDir string) bool {
+	rulesPath := filepath.Join(projectDir, ".pogonian", "security", "rules.yaml")
+	data, err := os.ReadFile(rulesPath)
+	if err != nil {
+		return true // Default fail-closed
+	}
+	var conf struct {
+		Policies struct {
+			CSRF struct {
+				Enabled *bool `yaml:"enabled"`
+			} `yaml:"csrf"`
+		} `yaml:"policies"`
+	}
+	if err := yaml.Unmarshal(data, &conf); err == nil && conf.Policies.CSRF.Enabled != nil {
+		return *conf.Policies.CSRF.Enabled
+	}
+	return true
 }
 
 // resolveEffectiveMethod inspects headers and form body to support method spoofing (PUT, PATCH, DELETE).
@@ -151,14 +186,43 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		duration := time.Since(start)
 		s.logRequest(r.Method, r.URL.Path, rec.statusCode, duration)
+		if s.DevMode {
+			devtools.GlobalRecorder.Record(r.Method, r.URL.Path, rec.statusCode, duration)
+		}
 	}()
 
-	// 1. Serve Static Assets (Public & project static files with explicit path traversal protection)
+	// 1. DevTools, Live Reload & DevBar routes (Dev Mode only)
+	if s.DevMode {
+		if r.URL.Path == "/__pogn/devtools" {
+			devtools.ServeDevTools(s.ProjectDir).ServeHTTP(rec, r)
+			return
+		}
+		if r.URL.Path == "/__pogn/devbar.js" {
+			devtools.ServeDevBar().ServeHTTP(rec, r)
+			return
+		}
+		if r.URL.Path == "/__pogn/live-reload" {
+			s.serveLiveReload(rec, r)
+			return
+		}
+	}
+
+	// 2. Interactive Swagger UI & OpenAPI Specification Endpoints
+	if r.URL.Path == "/swagger" || r.URL.Path == "/swagger/" || r.URL.Path == "/api/docs" || r.URL.Path == "/__pogn/swagger" {
+		openapi.ServeSwaggerUI(s.ProjectDir, "/swagger.json").ServeHTTP(rec, r)
+		return
+	}
+	if r.URL.Path == "/swagger.json" || r.URL.Path == "/api/openapi.json" || r.URL.Path == "/__pogn/swagger.json" {
+		openapi.ServeSpecHandler(s.ProjectDir, s.Config.Server.Port).ServeHTTP(rec, r)
+		return
+	}
+
+	// 3. Serve Static Assets (Public, app/ & project static files with explicit path traversal protection)
 	if s.handleStatic(rec, r) {
 		return
 	}
 
-	// 2. Serve Builtin Client Runtime
+	// 4. Serve Builtin Client Runtime
 	if r.URL.Path == "/_pogn/runtime.js" {
 		rec.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		if s.DevMode {
@@ -170,8 +234,19 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Match Filesystem Route
-	if route, params := s.Router.Match(r.URL.Path); route != nil {
+	// 5. Direct API Endpoint Dispatcher (/api/...)
+	if s.handleAPI(rec, r) {
+		return
+	}
+
+	// 6. Match Filesystem Route (with dynamic dev-mode rescan for zero-restart route discovery)
+	route, params := s.Router.Match(r.URL.Path)
+	if route == nil && s.DevMode {
+		_ = s.Router.Scan()
+		route, params = s.Router.Match(r.URL.Path)
+	}
+
+	if route != nil {
 		effectiveMethod := resolveEffectiveMethod(r)
 
 		// Handle Action Submissions (Form POST/PUT/PATCH/DELETE)
@@ -201,7 +276,12 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 				}
 
 				if len(formMap) > 0 {
-					_ = s.DB.GenericInsertForm(tableName, formMap)
+					if err := s.DB.GenericInsertForm(tableName, formMap); err != nil {
+						rec.WriteHeader(http.StatusInternalServerError)
+						rec.Header().Set("Content-Type", "text/html; charset=utf-8")
+						fmt.Fprintf(rec, "<h1>500 Database Insert Error</h1><p>%v</p>", err)
+						return
+					}
 				}
 				http.Redirect(rec, r, route.Path, http.StatusSeeOther)
 				return
@@ -223,25 +303,46 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			cleanPath := strings.Trim(route.Path, "/")
 			tableName := strings.Trim(strings.Split(cleanPath, "/")[0], "/")
 
-			if idStr, ok := params["id"]; ok && idStr != "" {
-				var item map[string]interface{}
-				if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-					item, _ = s.DB.GenericSelectByID(tableName, id)
-				}
-				data = map[string]interface{}{
-					"Product": item,
-					"Item":    item,
-					"Record":  item,
+			if tableName != "" && s.DB.TableExists(tableName) {
+				if idStr, ok := params["id"]; ok && idStr != "" {
+					var item map[string]interface{}
+					if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+						recItem, err := s.DB.GenericSelectByID(tableName, id)
+						if err != nil {
+							rec.WriteHeader(http.StatusInternalServerError)
+							rec.Header().Set("Content-Type", "text/html; charset=utf-8")
+							fmt.Fprintf(rec, "<h1>500 Database Query Error</h1><p>%v</p>", err)
+							return
+						}
+						item = recItem
+					}
+					data = map[string]interface{}{
+						"Product": item,
+						"Item":    item,
+						"Record":  item,
+					}
+				} else {
+					items, err := s.DB.GenericSelect(tableName)
+					if err != nil {
+						rec.WriteHeader(http.StatusInternalServerError)
+						rec.Header().Set("Content-Type", "text/html; charset=utf-8")
+						fmt.Fprintf(rec, "<h1>500 Database Query Error</h1><p>%v</p>", err)
+						return
+					}
+					if items == nil {
+						items = make([]map[string]interface{}, 0)
+					}
+					data = map[string]interface{}{
+						"Products": items,
+						"Items":    items,
+						"Total":    len(items),
+					}
 				}
 			} else {
-				items, _ := s.DB.GenericSelect(tableName)
-				if items == nil {
-					items = make([]map[string]interface{}, 0)
-				}
 				data = map[string]interface{}{
-					"Products": items,
-					"Items":    items,
-					"Total":    len(items),
+					"Items":    make([]interface{}, 0),
+					"Products": make([]interface{}, 0),
+					"Total":    0,
 				}
 			}
 		} else {
@@ -274,8 +375,202 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Route Not Found (404)
+	// 7. Route Not Found (404)
 	s.handleNotFound(rec, r)
+}
+
+// handleAPI handles backend JSON API requests, health checks, and SQLite entity CRUD endpoints.
+func (s *Server) handleAPI(w *responseRecorder, r *http.Request) bool {
+	if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/api" {
+		return false
+	}
+
+	// 1. Health check: /api/health
+	if r.URL.Path == "/api/health" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "ok",
+			"framework": "pogonian",
+			"version":   version.Current,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+		return true
+	}
+
+	// 2. Discovered routes listing: /api/routes
+	if r.URL.Path == "/api/routes" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		var routeList []map[string]interface{}
+		for _, rt := range s.Router.Routes {
+			routeList = append(routeList, map[string]interface{}{
+				"path":   rt.Path,
+				"page":   rt.PagePath,
+				"params": rt.Params,
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"routes": routeList,
+			"total":  len(routeList),
+		})
+		return true
+	}
+
+	// 3. Dynamic REST CRUD for SQLite tables (/api/:entity or /api/:entity/:id)
+	if s.DB != nil {
+		relAPI := strings.TrimPrefix(r.URL.Path, "/api/")
+		parts := strings.Split(relAPI, "/")
+		tableName := parts[0]
+
+		if tableName != "" && dataruntime.IsSafeIdentifier(tableName) {
+			switch r.Method {
+			case http.MethodGet:
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				if len(parts) > 1 && parts[1] != "" {
+					if id, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						item, err := s.DB.GenericSelectByID(tableName, id)
+						if err != nil {
+							w.WriteHeader(http.StatusInternalServerError)
+							_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "database error"})
+							return true
+						}
+						if item == nil {
+							w.WriteHeader(http.StatusNotFound)
+							_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "not found"})
+							return true
+						}
+						_ = json.NewEncoder(w).Encode(item)
+						return true
+					}
+				} else {
+					items, err := s.DB.GenericSelect(tableName)
+					if err != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "database error"})
+						return true
+					}
+					if items == nil {
+						items = make([]map[string]interface{}, 0)
+					}
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"data":  items,
+						"total": len(items),
+					})
+					return true
+				}
+
+			case http.MethodPost:
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				formMap := make(map[string]string)
+				if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+					var jsonBody map[string]interface{}
+					if err := json.NewDecoder(r.Body).Decode(&jsonBody); err == nil {
+						for k, v := range jsonBody {
+							formMap[k] = fmt.Sprintf("%v", v)
+						}
+					}
+				} else {
+					_ = r.ParseMultipartForm(32 << 20)
+					_ = r.ParseForm()
+					for k, v := range r.PostForm {
+						if len(v) > 0 && k != "_csrf" && k != "_method" {
+							formMap[k] = v[0]
+						}
+					}
+				}
+				if len(formMap) > 0 {
+					if err := s.DB.GenericInsertForm(tableName, formMap); err == nil {
+						w.WriteHeader(http.StatusCreated)
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
+							"success": true,
+							"message": fmt.Sprintf("Record created in %s", tableName),
+						})
+						return true
+					} else {
+						w.WriteHeader(http.StatusInternalServerError)
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+						return true
+					}
+				}
+
+			case http.MethodDelete:
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				if len(parts) > 1 && parts[1] != "" {
+					if id, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						if err := s.DB.GenericDeleteByID(tableName, id); err == nil {
+							_ = json.NewEncoder(w).Encode(map[string]interface{}{
+								"success": true,
+								"message": "Record deleted successfully",
+							})
+							return true
+						} else {
+							w.WriteHeader(http.StatusInternalServerError)
+							_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// serveLiveReload provides Server-Sent Events (SSE) stream for browser auto-reload.
+func (s *Server) serveLiveReload(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	msgChan := make(chan string, 10)
+	s.liveMu.Lock()
+	if s.liveClients == nil {
+		s.liveClients = make(map[chan string]bool)
+	}
+	s.liveClients[msgChan] = true
+	s.liveMu.Unlock()
+
+	defer func() {
+		s.liveMu.Lock()
+		delete(s.liveClients, msgChan)
+		s.liveMu.Unlock()
+	}()
+
+	fmt.Fprintf(w, "data: connected\n\n")
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-msgChan:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", msg)
+			flusher.Flush()
+		}
+	}
+}
+
+// BroadcastLiveReload broadcasts a reload signal to all connected browser clients.
+func (s *Server) BroadcastLiveReload(event string) {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	for ch := range s.liveClients {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +595,16 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	// Direct files in project root (globals.css, favicon.svg, etc.)
+	// 1. Check inside app/ directory (e.g. app/globals.css, app/globals.js)
+	appCandidate, err := filepath.Abs(filepath.Join(absProject, "app", relPath))
+	if err == nil && isSubPath(filepath.Join(absProject, "app"), appCandidate) {
+		if info, err := os.Stat(appCandidate); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, appCandidate)
+			return true
+		}
+	}
+
+	// 2. Direct files in project root (e.g. globals.css, globals.js, favicon.svg)
 	rootCandidate, err := filepath.Abs(filepath.Join(absProject, relPath))
 	if err == nil && isSubPath(absProject, rootCandidate) {
 		if info, err := os.Stat(rootCandidate); err == nil && !info.IsDir() {
@@ -309,13 +613,18 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 
-	// Files inside public/
-	publicDir := filepath.Join(absProject, "public")
-	publicCandidate, err := filepath.Abs(filepath.Join(publicDir, relPath))
-	if err == nil && isSubPath(publicDir, publicCandidate) {
-		if info, err := os.Stat(publicCandidate); err == nil && !info.IsDir() {
-			http.ServeFile(w, r, publicCandidate)
-			return true
+	// 3. Files inside public/ or app/public/
+	publicCandidates := []string{
+		filepath.Join(absProject, "public"),
+		filepath.Join(absProject, "app", "public"),
+	}
+	for _, pDir := range publicCandidates {
+		pCand, err := filepath.Abs(filepath.Join(pDir, relPath))
+		if err == nil && isSubPath(pDir, pCand) {
+			if info, err := os.Stat(pCand); err == nil && !info.IsDir() {
+				http.ServeFile(w, r, pCand)
+				return true
+			}
 		}
 	}
 
@@ -334,12 +643,15 @@ func (s *Server) handleNotFound(w *responseRecorder, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	custom404 := filepath.Join(s.ProjectDir, "app", "404.html")
-	if data, err := os.ReadFile(custom404); err == nil {
-		w.Write(data)
-		return
+	// Check if user has custom 404.html in app/ or root
+	for _, p := range []string{filepath.Join(s.ProjectDir, "app", "404.html"), filepath.Join(s.ProjectDir, "404.html")} {
+		if data, err := os.ReadFile(p); err == nil {
+			w.Write(data)
+			return
+		}
 	}
 
+	// Default sleek 404
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -381,6 +693,7 @@ func (s *Server) Start() error {
 		port = 3000
 	}
 
+	// 1. If user passed --kill / -k, clear any zombie process occupying the port
 	if s.KillPortOnConflict {
 		if killed := killProcessOnPort(port); killed {
 			fmt.Println()
@@ -389,6 +702,7 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// 2. Attempt to bind listener with automatic fallback to next available port (3000 -> 3001 -> 3002...)
 	var listener net.Listener
 	var err error
 	originalPort := port
@@ -425,13 +739,15 @@ func (s *Server) Start() error {
 	}
 
 	fmt.Println()
-	fmt.Printf("  \x1b[1;36mPogonian %s\x1b[0m \x1b[1;30mv%s\x1b[0m\n", modeName, version.Current)
+	fmt.Printf("  \x1b[1;36mPogonian %s\x1b[0m \x1b[1;30m%s\x1b[0m\n", modeName, version.Current)
 	if port != originalPort {
 		fmt.Printf("  \x1b[1;33m⚠️  Port %d was busy. Automatically switched to port %d\x1b[0m\n", originalPort, port)
+		fmt.Printf("  \x1b[1;30m↳ Tip: Run with '-k' or '--kill' to clear port %d: pogn dev -k\x1b[0m\n", originalPort)
 	}
-	fmt.Printf("  ➜  \x1b[1mLocal:\x1b[0m   \x1b[1;32mhttp://%s\x1b[0m\n", actualAddr)
-	fmt.Printf("  ➜  \x1b[1mApp:\x1b[0m     %s\n", s.Config.Name)
-	fmt.Printf("  ➜  \x1b[1mRoutes:\x1b[0m  %d discovered\n", len(s.Router.Routes))
+	fmt.Printf("  ➜  \x1b[1mLocal:\x1b[0m     \x1b[1;32mhttp://%s\x1b[0m\n", actualAddr)
+	fmt.Printf("  ➜  \x1b[1mSwagger:\x1b[0m   \x1b[1;35mhttp://%s/swagger\x1b[0m\n", actualAddr)
+	fmt.Printf("  ➜  \x1b[1mApp:\x1b[0m       %s\n", s.Config.Name)
+	fmt.Printf("  ➜  \x1b[1mRoutes:\x1b[0m    %d discovered\n", len(s.Router.Routes))
 	for _, route := range s.Router.Routes {
 		fmt.Printf("     \x1b[1;30m•\x1b[0m %-20s \x1b[1;30m(%s)\x1b[0m\n", route.Path, filepath.Base(filepath.Dir(route.PagePath)))
 	}
