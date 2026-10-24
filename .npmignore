@@ -1,0 +1,32 @@
+# Git and CI/CD
+.git
+.github
+.gitignore
+
+# Testing and Development Scratch
+tests/
+testlab/
+scripts/
+.test-work/
+scratch/
+desktop_build_test/
+
+# Build outputs and distributions
+dist/
+bin/pogn
+bin/pogn.exe
+*.tar.gz
+*.zip
+
+# Database and local state
+*.db
+*.db-wal
+*.db-shm
+.pogonian/
+.env
+.env.*
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db

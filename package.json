@@ -7,18 +7,51 @@
     "pogn": "./bin/pogn-node-shim.js",
     "pogonian": "./bin/pogn-node-shim.js"
   },
+  "files": [
+    "bin/pogn-node-shim.js",
+    "cmd",
+    "internal",
+    "pkg",
+    "runtime",
+    "templates",
+    "go.mod",
+    "go.sum",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "make build",
     "test": "make test",
-    "dev": "make dev"
+    "dev": "make dev",
+    "prepack": "node -e \"console.log('📦 Packaging Pogonian for npm distribution...')\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vruket-Developer/Pogonian.git"
+  },
+  "homepage": "https://github.com/Vruket-Developer/Pogonian#readme",
+  "bugs": {
+    "url": "https://github.com/Vruket-Developer/Pogonian/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "keywords": [
     "pogonian",
+    "pogn",
     "web-framework",
     "golang",
     "html-first",
     "spa-runtime",
-    "ai-native"
+    "ai-native",
+    "cross-platform",
+    "intermediate-representation",
+    "sqlite-wal",
+    "sub-millisecond",
+    "compiler"
   ],
   "author": "Vruket-Developer",
   "license": "MIT"
