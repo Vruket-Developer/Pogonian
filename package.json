@@ -4,8 +4,8 @@
   "description": "An AI-native, full-stack web framework and application migration platform built around HTML, Go, and architecture-aware AI.",
   "main": "bin/pogn-node-shim.js",
   "bin": {
-    "pogn": "./bin/pogn-node-shim.js",
-    "pogonian": "./bin/pogn-node-shim.js"
+    "pogn": "bin/pogn-node-shim.js",
+    "pogonian": "bin/pogn-node-shim.js"
   },
   "files": [
     "bin/pogn-node-shim.js",
