@@ -131,7 +131,11 @@ func (s *Server) Handler() http.Handler {
 
 	var mws []middleware.Middleware
 	mws = append(mws, middleware.Recovery(s.DevMode))
-	mws = append(mws, middleware.RateLimit(500, time.Minute))
+	if s.DevMode {
+		mws = append(mws, middleware.RateLimit(100000, time.Minute))
+	} else {
+		mws = append(mws, middleware.RateLimit(500, time.Minute))
+	}
 	if s.CSRFEnabled {
 		mws = append(mws, middleware.CSRF(true))
 	}
