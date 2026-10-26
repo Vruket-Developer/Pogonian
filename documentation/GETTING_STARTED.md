@@ -14,7 +14,31 @@ This guide walks you through installing Pogonian, creating your first applicatio
 
 ## 📦 Installation
 
-### Option 1: Build & Install from Source (Recommended)
+### Option 1: Run with `npx` (Zero Installation Required)
+
+```bash
+# Scaffold a new application directly
+npx pogonian create store-app
+cd store-app
+npx pogonian dev
+```
+
+### Option 2: Install Globally via npm
+
+```bash
+npm install -g pogonian
+
+# Use the 'pogn' or 'pogonian' command anywhere
+pogn --version
+```
+
+### Option 3: Install via Go Toolchain
+
+```bash
+go install github.com/Vruket-Developer/Pogonian/cmd/pogn@latest
+```
+
+### Option 4: Build & Install from Source
 
 Clone the repository and build the binary:
 
@@ -22,11 +46,8 @@ Clone the repository and build the binary:
 git clone https://github.com/Vruket-Developer/Pogonian.git
 cd Pogonian
 make build
-```
 
-To install the `pogn` binary globally into your `$GOPATH/bin` or system `PATH`:
-
-```bash
+# Install into your $GOPATH/bin
 go install ./cmd/pogn
 ```
 

@@ -9,6 +9,7 @@ This document provides a complete reference for all available commands in the `p
 - [Core Development & Testing](#1-core-development--testing)
   - [`pogn create`](#pogn-create)
   - [`pogn dev`](#pogn-dev)
+  - [`pogn swagger` / `pogn openapi`](#pogn-swagger--pogn-openapi)
   - [`pogn test`](#pogn-test)
   - [`pogn check`](#pogn-check)
   - [`pogn tree`](#pogn-tree)
@@ -20,8 +21,11 @@ This document provides a complete reference for all available commands in the `p
   - [`pogn db:status`](#pogn-dbstatus)
   - [`pogn db:new`](#pogn-dbnew)
 - [Scaffolding & Architecture](#3-scaffolding--architecture)
+  - [`pogn modules` / `pogn marketplace`](#pogn-modules--pogn-marketplace)
+  - [`pogn add module` / `pogn add component`](#pogn-add-module--pogn-add-component)
   - [`pogn add table`](#pogn-add-table)
   - [`pogn add route`](#pogn-add-route)
+  - [`pogn remove module`](#pogn-remove-module)
   - [`pogn remove table`](#pogn-remove-table)
   - [`pogn remove route`](#pogn-remove-route)
   - [`pogn inspect`](#pogn-inspect)
@@ -75,6 +79,21 @@ pogn dev [project-dir] [flags]
 - Live Architecture DevBar HUD at bottom right of all pages.
 - Automatic route re-scanning on filesystem updates.
 - SQLite WAL mode database at `./data.db`.
+
+---
+
+### `pogn swagger` / `pogn openapi`
+Generates an OpenAPI 3.0 specification from discovered routes, handlers, and models, and optionally launches an interactive Swagger UI server.
+
+```bash
+# Launch interactive Swagger UI server in browser
+pogn swagger
+pogn swagger --port=3000 --open
+
+# Export OpenAPI 3.0 specification in JSON format
+pogn swagger --json
+pogn swagger --export=./openapi.json
+```
 
 ---
 
@@ -210,6 +229,30 @@ pogn db:new add_user_avatar
 
 ## 3. Scaffolding & Architecture
 
+### `pogn modules` / `pogn marketplace`
+Lists all available UI components and full-stack modules from the Shadcn-style marketplace registry.
+
+```bash
+pogn modules
+pogn marketplace
+```
+
+---
+
+### `pogn add module` / `pogn add component`
+Installs clean, native HTML templates, scoped CSS, Go backend tiers, and database migrations directly into your repository with zero npm dependencies.
+
+```bash
+# Install UI-only components (footer, header, sidebar, card)
+pogn add component footer
+pogn add component header
+
+# Install full-stack feature modules (auth/login, etc.)
+pogn add module login
+```
+
+---
+
 ### `pogn add table`
 Generates the complete 5-tier backend (`entity.go`, `repository.go`, `service.go`, `handler.go`) and frontend route (`app/<name>/page.html`) for a new database entity.
 
@@ -226,6 +269,16 @@ Scaffolds a standalone frontend route page in `app/` without backend CRUD boiler
 ```bash
 pogn add route /about
 pogn add route /faq
+```
+
+---
+
+### `pogn remove module`
+Removes an installed marketplace module or component from the project and deregisters it from `app.ai`.
+
+```bash
+pogn remove module footer
+pogn remove module login
 ```
 
 ---

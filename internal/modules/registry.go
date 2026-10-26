@@ -97,6 +97,95 @@ var Catalog = map[string]*Module{
 		},
 	},
 
+	"footer": {
+		Name:        "footer",
+		Category:    CategoryUIComponent,
+		Description: "Responsive site footer with multi-column links, copyright notice, and branding",
+		UsageHint:   `Add {{ template "components/footer.html" . }} or {{ template "footer" . }} at the bottom of app/layout.html.`,
+		Files: map[string]string{
+			"app/components/footer.html": `{{ define "footer" }}
+<footer class="pogn-component-footer">
+    <div class="container footer-container">
+        <div class="footer-brand">
+            <div class="brand-logo">
+                <span class="logo-badge">P</span>
+                <strong>Pogonian</strong>
+            </div>
+            <p class="footer-tagline">Architecture-Aware Full-Stack Go & HTML-First Web Platform.</p>
+        </div>
+        <div class="footer-links">
+            <div class="footer-col">
+                <h4>Platform</h4>
+                <a href="/">Home</a>
+                <a href="/products">Products</a>
+                <a href="/architecture">Architecture</a>
+            </div>
+            <div class="footer-col">
+                <h4>Resources</h4>
+                <a href="/feedback">Feedback</a>
+                <a href="/login">Sign In</a>
+                <a href="/__pogn/devtools">⚡ DevTools</a>
+            </div>
+        </div>
+    </div>
+    <div class="container footer-bottom">
+        <p>&copy; 2026 Pogonian. All rights reserved.</p>
+    </div>
+</footer>
+{{ end }}`,
+		},
+		CSS: `/* Pogonian Marketplace: Footer */
+.pogn-component-footer {
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    background: var(--bg-surface, #12161f);
+    padding: 3rem 0 2rem;
+    margin-top: 4rem;
+}
+.footer-container {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+.footer-brand .footer-tagline {
+    color: var(--text-secondary, #9aa5b5);
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+    max-width: 280px;
+    line-height: 1.5;
+}
+.footer-links {
+    display: flex;
+    gap: 3rem;
+}
+.footer-col h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary, #f0f3f6);
+}
+.footer-col a {
+    display: block;
+    color: var(--text-secondary, #9aa5b5);
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+    text-decoration: none;
+    transition: var(--transition, all 0.2s ease);
+}
+.footer-col a:hover {
+    color: var(--brand-primary, #38bdf8);
+}
+.footer-bottom {
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.05));
+    padding-top: 1.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted, #626d7d);
+    text-align: center;
+}
+`,
+	},
+
 	"sidebar": {
 		Name:        "sidebar",
 		Category:    CategoryUIComponent,

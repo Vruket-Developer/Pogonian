@@ -6,16 +6,16 @@ Welcome to the official documentation for **Pogonian** — the architecture-awar
 
 ## 📑 Documentation Guides
 
-- [**CLI Commands Reference (`CLI_COMMANDS.md`)**](file:///home/vraj/Desktop/Vruket/Pogonian/documentation/CLI_COMMANDS.md)  
-  *Comprehensive reference of all `pogn` CLI commands, flags, parameters, and usage examples.*
-
-- [**Getting Started & Running Applications (`GETTING_STARTED.md`)**](file:///home/vraj/Desktop/Vruket/Pogonian/documentation/GETTING_STARTED.md)  
+- [**Getting Started & Running Applications (`GETTING_STARTED.md`)**](./GETTING_STARTED.md)  
   *Step-by-step guide on how to install, scaffold, run locally, configure environments (`.env`), and compile standalone release binaries.*
 
-- [**Architecture & Design System (`ARCHITECTURE.md`)**](file:///home/vraj/Desktop/Vruket/Pogonian/documentation/ARCHITECTURE.md)  
+- [**CLI Commands Reference (`CLI_COMMANDS.md`)**](./CLI_COMMANDS.md)  
+  *Comprehensive reference of all `pogn` CLI commands, flags, parameters, and usage examples.*
+
+- [**Architecture & Design System (`ARCHITECTURE.md`)**](./ARCHITECTURE.md)  
   *In-depth breakdown of the 5-Tier Modular Monolith, Radix Route Trie, Soft-Navigation Runtime, and Compile-Time Boundary Checker.*
 
-- [**Database, Auth & Migrations Guide (`DATABASE_AND_MIGRATIONS.md`)**](file:///home/vraj/Desktop/Vruket/Pogonian/documentation/DATABASE_AND_MIGRATIONS.md)  
+- [**Database, Auth & Migrations Guide (`DATABASE_AND_MIGRATIONS.md`)**](./DATABASE_AND_MIGRATIONS.md)  
   *Guide to local SQLite WAL database, remote PostgreSQL support, Argon2id authentication, persistent sessions, and dynamic entity models.*
 
 ---

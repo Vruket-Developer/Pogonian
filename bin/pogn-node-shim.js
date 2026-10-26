@@ -20,7 +20,7 @@ const https = require('https');
 const http = require('http');
 
 const pkg = require('../package.json');
-const VERSION = pkg.version || '0.2.0';
+const VERSION = pkg.version || '0.2.1';
 const rootDir = path.resolve(__dirname, '..');
 const isWin = process.platform === 'win32';
 const ext = isWin ? '.exe' : '';

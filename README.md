@@ -60,7 +60,7 @@ Traditional full-stack frameworks force developers to compromise: heavy Node.js 
 **Pogonian fundamentally re-engineers this stack:**
 
 - **🚀 Sub-Millisecond Latency**: Native Go concurrency delivers Time-to-First-Byte (TTFB) in **under 1.5ms** (~30x faster than Node.js SSR).
-- **🪶 3.2 KB Micro-Runtime**: Zero-dependency [runtime.js](file:///home/vraj/Desktop/Vruket/Pogonian/Pogonian/runtime/runtime.js) provides instantaneous SPA soft navigation, automatic head tag reconciliation, method spoofing (`PUT`, `DELETE`), and fail-closed CSRF tokens without React/Vue overhead.
+- **🪶 3.2 KB Micro-Runtime**: Zero-dependency [runtime.js](runtime/runtime.js) provides instantaneous SPA soft navigation, automatic head tag reconciliation, method spoofing (`PUT`, `DELETE`), and fail-closed CSRF tokens without React/Vue overhead.
 - **🛡️ Compile-Time 5-Tier Boundary Checker**: AST-level verification (`pogn check`) guarantees strict layer separation (`UI ➔ Handler ➔ Service ➔ Repository ➔ Database`), preventing circular dependencies and database leakage.
 - **🧠 Architecture-Aware AI Context**: Reduces AI prompt token consumption by **99.9%** (down from ~250k repo tokens to ~250 scoped AST tokens) via formal `.ai` architecture grammar.
 - **🔄 Cross-Platform Universal IR & Native Lowering**: Compiles to Web, native Android (Jetpack Compose), iOS (SwiftUI), Linux desktop (ELF), Windows (PE), and Android TV without WebViews.
@@ -121,6 +121,7 @@ Detailed documentation is available in the [`documentation/`](documentation/) di
 - [**Database, Auth & Migrations Guide**](documentation/DATABASE_AND_MIGRATIONS.md)
 - [**Patentability & Technical Analysis**](documentation/PATENTABILITY_ANALYSIS.md)
 - [**Components & Modules Reference**](documentation/COMPONENTS_AND_MODULES.md)
+- [**Upgrade & Maintenance Guide**](documentation/UPGRADE_GUIDE.md)
 
 ---
 

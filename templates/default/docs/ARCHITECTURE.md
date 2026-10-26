@@ -63,7 +63,7 @@ The `pogn check` engine enforces strict isolation rules on every build:
 
 ## ⚡ Zero-Drift Radix Route Trie
 
-Pogonian replaces linear route arrays with a Radix Tree (Trie) router in [`internal/router/trie.go`](file:///home/vraj/Desktop/Vruket/Pogonian/internal/router/trie.go):
+Pogonian replaces linear route arrays with a Radix Tree (Trie) router:
 - **Complexity**: $O(k)$ lookup time, where $k$ is the URL segment depth.
 - **Precedence**: Static routes (e.g. `/products/featured`) take precedence over parameterized routes (`/products/:id`).
 - **Type Constraints**: Supports typed route constraints like `[id:int]` or `[slug:string]`.

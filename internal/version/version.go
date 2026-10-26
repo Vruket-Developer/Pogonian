@@ -3,10 +3,10 @@ package version
 // Single Source of Truth for Pogonian Framework Versioning.
 const (
 	// Current is the active semantic version of the Pogonian framework and CLI.
-	Current = "0.2.0"
+	Current = "0.2.1"
 
 	// SpecVersion is the active schema version for .pogonian/architecture/app.ai
-	SpecVersion = "0.2.0"
+	SpecVersion = "0.2.1"
 
 	// MinGoVersion is the minimum supported Go toolchain version.
 	MinGoVersion = "1.22"

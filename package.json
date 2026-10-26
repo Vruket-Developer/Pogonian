@@ -1,6 +1,6 @@
 {
   "name": "pogonian",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "An AI-native, full-stack web framework and application migration platform built around HTML, Go, and architecture-aware AI.",
   "main": "bin/pogn-node-shim.js",
   "bin": {

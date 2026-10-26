@@ -67,7 +67,7 @@ Pogonian generates and compiles into genuinely native platform applications with
 
 ## ⚡ Universal Pogonian Intermediate Representation (IR v2.0)
 
-Located in [`pkg/ir/ir.go`](file:///home/vraj/Desktop/Vruket/Pogonian/Pogonian/pkg/ir/ir.go), the universal IR encapsulates complete application semantics independently of rendering technology:
+Located in [`pkg/ir/ir.go`](../pkg/ir/ir.go), the universal IR encapsulates complete application semantics independently of rendering technology:
 
 1. **Platform-Agnostic UI Trees (`UIElementIR`)**:
    - Normalized semantic primitives: `StackVertical`, `StackHorizontal`, `Container`, `Heading`, `Text`, `Button`, `Input`, `Form`, `List`, `Image`, `Card`, `Navigation`, `Grid`, `Modal`, `Spacer`, `Divider`, `Icon`.
@@ -114,7 +114,7 @@ Application Resource (e.g. "products")
 
 ## 💾 Pogonian Data Runtime (Storage Abstraction)
 
-Implemented in [`pkg/dataruntime/runtime.go`](file:///home/vraj/Desktop/Vruket/Pogonian/Pogonian/pkg/dataruntime/runtime.go):
+Implemented in [`pkg/dataruntime/runtime.go`](../pkg/dataruntime/runtime.go):
 
 Rather than forcing developers to configure database connection strings or pick database dialects, Pogonian provides a clean storage abstraction above physical persistence:
 
@@ -138,7 +138,7 @@ Rather than forcing developers to configure database connection strings or pick 
 
 ## 📡 Hardware & Device Capability Model
 
-Implemented in [`pkg/capability/capability.go`](file:///home/vraj/Desktop/Vruket/Pogonian/Pogonian/pkg/capability/capability.go):
+Implemented in [`pkg/capability/capability.go`](../pkg/capability/capability.go):
 
 Applications declare required or optional capabilities. The compiler's **Capability Validator** enforces compatibility at compile time:
 
@@ -154,7 +154,7 @@ pogn capabilities
 
 ## 🔄 Cross-Device State Continuity
 
-Implemented in [`pkg/state/state.go`](file:///home/vraj/Desktop/Vruket/Pogonian/Pogonian/pkg/state/state.go):
+Implemented in [`pkg/state/state.go`](../pkg/state/state.go):
 
 Pogonian enables portable state handoff between heterogeneous platforms (e.g., Web → Android → Windows → Android TV):
 

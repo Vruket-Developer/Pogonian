@@ -193,6 +193,7 @@ func PrintHelp() {
 	fmt.Println("  \x1b[1;36mmigrate\x1b[0m <path>         Convert legacy application into Pogonian")
 	fmt.Println()
 	fmt.Println("\x1b[1mSECURITY & RESEARCH:\x1b[0m")
+	fmt.Println("  \x1b[1;36msecret\x1b[0m / \x1b[1;36mkey:generate\x1b[0m Generate or rotate cryptographic APP_KEY")
 	fmt.Println("  \x1b[1;36msecurity audit\x1b[0m         Run automated security scanner and vulnerability probe")
 	fmt.Println("  \x1b[1;36mbenchmark\x1b[0m [--stress]   Run scale and micro-benchmarks (10k+ routes stress test)")
 	fmt.Println()

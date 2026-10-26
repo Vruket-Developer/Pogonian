@@ -9,7 +9,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${ROOT_DIR}/dist/binaries"
-VERSION="0.2.0"
+VERSION="${1:-$(node -p "require('${ROOT_DIR}/package.json').version" 2>/dev/null || echo "0.2.1")}"
 
 echo "🚀 Building Pogonian v${VERSION} release binaries across all platforms..."
 rm -rf "${DIST_DIR}"
